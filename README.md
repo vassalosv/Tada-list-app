@@ -1,4 +1,4 @@
-# TaDa
+# TaDa List ;)
 
 A responsive collaborative task app inspired by the two supplied pastel UI references. React + Vite, Express, SQLite (Node's built-in driver), private filesystem attachments, and a Capacitor 7 Android project. Fonts are bundled; no CDN is required.
 
