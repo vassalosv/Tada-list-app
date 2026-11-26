@@ -5,6 +5,7 @@ self.addEventListener("push", (event) => {
       data.title || "A gentle nudge from TaDa",
       {
         body: "Open TaDa to see your task.",
+        icon: "/tada-icon.png",
         tag: data.id || "tada",
         data: { url: "/" },
       },

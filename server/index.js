@@ -20,6 +20,7 @@ import {
   tick,
   nextDate,
   schedulerStatus,
+  defaultWorkspace,
 } from "./db.js";
 import { pushEnabled, sendPush } from "./push.js";
 const app = express();
@@ -103,6 +104,7 @@ app.use("/api/auth", (req, res, next) => {
   next();
 });
 function seed(user) {
+  const workspace = defaultWorkspace(user);
   for (const [name, color] of [
     ["Personal", "mint"],
     ["Work studio", "lavender"],
@@ -111,6 +113,7 @@ function seed(user) {
     let list = id();
     run("INSERT INTO lists VALUES(?,?,?,?)", list, user, name, color);
     run("INSERT INTO members VALUES(?,?,?)", list, user, "owner");
+    run("INSERT INTO list_workspaces VALUES(?,?,?)", user, list, workspace);
     if (name === "Personal") {
       for (const [title, h, star] of [
         ["Make a little room for yourself", 2, true],
@@ -279,11 +282,19 @@ app.post("/api/logout", (req, res) => {
 });
 app.get("/api/state", (req, res) => {
   let lists = all(
-    "SELECT l.*,m.role FROM lists l JOIN members m ON m.list=l.id WHERE m.user=?",
+    "SELECT l.*,m.role,w.workspace FROM lists l JOIN members m ON m.list=l.id LEFT JOIN list_workspaces w ON w.list=l.id AND w.user=m.user WHERE m.user=?",
     req.user,
   );
   res.json({
     user: get("SELECT id,name,email FROM users WHERE id=?", req.user),
+    workspaces: all(
+      "SELECT id,name FROM workspaces WHERE user=? ORDER BY rowid",
+      req.user,
+    ),
+    notificationCursor: get(
+      "SELECT created,id FROM notifications WHERE user=? ORDER BY created DESC,id DESC LIMIT 1",
+      req.user,
+    ) || { created: 0, id: "" },
     lists,
     tasks: all(
       "SELECT t.* FROM tasks t JOIN members m ON m.list=t.list WHERE m.user=?",
@@ -301,11 +312,117 @@ app.get("/api/state", (req, res) => {
     ),
   });
 });
+function workspaceAccess(user, workspace) {
+  if (typeof workspace !== "string" || !workspace || workspace.length > 100)
+    fail(400, "Choose a space");
+  if (!get("SELECT 1 FROM workspaces WHERE id=? AND user=?", workspace, user))
+    fail(403, "Space not available");
+}
+function workspaceName(value) {
+  if (typeof value !== "string" || !value.trim() || value.trim().length > 60)
+    fail(400, "Enter a space name (up to 60 characters)");
+  return value.trim();
+}
+app.post(
+  "/api/workspaces",
+  wrap((req, res) => {
+    const name = workspaceName(req.body.name);
+    if (
+      get("SELECT COUNT(*) AS n FROM workspaces WHERE user=?", req.user).n >= 20
+    )
+      fail(400, "You can have up to 20 spaces");
+    const workspace = id();
+    run("INSERT INTO workspaces VALUES(?,?,?)", workspace, req.user, name);
+    res.json({ id: workspace });
+  }),
+);
+app.patch(
+  "/api/workspaces/:id",
+  wrap((req, res) => {
+    workspaceAccess(req.user, req.params.id);
+    run(
+      "UPDATE workspaces SET name=? WHERE id=? AND user=?",
+      workspaceName(req.body.name),
+      req.params.id,
+      req.user,
+    );
+    res.json({ ok: true });
+  }),
+);
+app.delete(
+  "/api/workspaces/:id",
+  wrap((req, res) => {
+    workspaceAccess(req.user, req.params.id);
+    const destination = req.body.destination;
+    if (
+      get("SELECT COUNT(*) AS n FROM workspaces WHERE user=?", req.user).n <= 1
+    )
+      fail(400, "Keep at least one space");
+    if (destination === req.params.id) fail(400, "Choose another space");
+    workspaceAccess(req.user, destination);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      run(
+        "UPDATE list_workspaces SET workspace=? WHERE user=? AND workspace=?",
+        destination,
+        req.user,
+        req.params.id,
+      );
+      run(
+        "DELETE FROM workspaces WHERE id=? AND user=?",
+        req.params.id,
+        req.user,
+      );
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    res.json({ ok: true });
+  }),
+);
+app.put(
+  "/api/lists/:id/workspace",
+  wrap((req, res) => {
+    access(req.user, req.params.id);
+    workspaceAccess(req.user, req.body.workspace);
+    run(
+      "INSERT INTO list_workspaces VALUES(?,?,?) ON CONFLICT(user,list) DO UPDATE SET workspace=excluded.workspace",
+      req.user,
+      req.params.id,
+      req.body.workspace,
+    );
+    res.json({ ok: true });
+  }),
+);
+// Authenticated, paginated feed for Android's native background worker.
+app.get(
+  "/api/notifications/native",
+  wrap((req, res) => {
+    const after = Number(req.query.after || 0),
+      afterId = String(req.query.afterId || "");
+    if (!Number.isSafeInteger(after) || after < 0 || afterId.length > 100)
+      fail(400, "Invalid notification cursor");
+    res.set("Cache-Control", "no-store");
+    res.json({
+      user: req.user,
+      notifications: all(
+        "SELECT n.id,n.title,n.task,n.created FROM notifications n WHERE n.user=? AND (n.created>? OR (n.created=? AND n.id>?)) AND (n.task IS NULL OR EXISTS(SELECT 1 FROM tasks t JOIN members m ON m.list=t.list WHERE t.id=n.task AND m.user=n.user)) ORDER BY n.created,n.id LIMIT 100",
+        req.user,
+        after,
+        after,
+        afterId,
+      ),
+    });
+  }),
+);
 app.post(
   "/api/lists",
   wrap((req, res) => {
     let name = String(req.body.name || "").trim();
     if (!name || name.length > 100) fail(400, "Enter a list name");
+    const workspace = req.body.workspace || defaultWorkspace(req.user);
+    workspaceAccess(req.user, workspace);
     let list = id();
     run(
       "INSERT INTO lists VALUES(?,?,?,?)",
@@ -317,6 +434,7 @@ app.post(
         : "mint",
     );
     run("INSERT INTO members VALUES(?,?,?)", list, req.user, "owner");
+    run("INSERT INTO list_workspaces VALUES(?,?,?)", req.user, list, workspace);
     res.json({ id: list });
   }),
 );
@@ -365,6 +483,12 @@ app.post(
       i.role,
     );
     run("DELETE FROM invites WHERE token=?", token);
+    run(
+      "INSERT OR IGNORE INTO list_workspaces VALUES(?,?,?)",
+      req.user,
+      i.list,
+      defaultWorkspace(req.user),
+    );
     res.json({ ok: true });
   }),
 );

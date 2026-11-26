@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { devicePlan } from "./reminder-plan.js";
 export const isNativeDevice = () => Capacitor.isNativePlatform();
+const NativeAlerts = registerPlugin("NativeAlerts");
+const backgroundReady = () =>
+  isNativeDevice() && Capacitor.isPluginAvailable("NativeAlerts");
+export async function pollNativeAlerts() {
+  if (backgroundReady()) await NativeAlerts.poll();
+}
 const ready = () =>
   isNativeDevice() && Capacitor.isPluginAvailable("LocalNotifications");
 const key = (user) => "tada.deviceReminders." + user;
@@ -13,6 +19,7 @@ export function clearDeviceReminders() {
   return (queue = queue
     .catch(() => {})
     .then(async () => {
+      if (backgroundReady()) await NativeAlerts.disable();
       const p = await LocalNotifications.getPending();
       if (p.notifications.length)
         await LocalNotifications.cancel({
@@ -72,6 +79,8 @@ export async function syncDeviceState(
         title: n.title,
         body: n.body,
         channelId: "tada-reminders",
+        smallIcon: "ic_stat_tada",
+        iconColor: "#006644",
         schedule: { at: new Date(n.at), allowWhileIdle: true },
         extra: {
           taskId: n.taskId,
@@ -115,6 +124,18 @@ export function useDeviceReminders(state) {
           needsReschedule,
         );
         needsReschedule = false;
+        if (backgroundReady()) {
+          await NativeAlerts.configure({
+            user: state.user.id,
+            after: state.notificationCursor?.created || 0,
+            afterId: state.notificationCursor?.id || "",
+            alarms: devicePlan(state.tasks).map(({ taskId, at }) => ({
+              taskId,
+              at,
+            })),
+          });
+          await NativeAlerts.poll();
+        }
         return result;
       });
     queue
@@ -142,10 +163,11 @@ export function useDeviceReminders(state) {
     ...status,
     native: isNativeDevice(),
     available: ready(),
+    background: backgroundReady(),
     enable: async () => {
       if (!ready())
         throw Error(
-          "Install the v0.1.2 Android app to enable device reminders",
+          "Install the v0.2.0 Android app to enable Android notifications",
         );
       if ((await LocalNotifications.requestPermissions()).display !== "granted")
         throw Error("Allow TaDa notifications in Android settings");
@@ -167,7 +189,7 @@ export function useDeviceReminders(state) {
     },
     preciseSettings: () => LocalNotifications.changeExactNotificationSetting(),
     test: async () => {
-      if (!ready()) throw Error("Install the v0.1.2 Android app first");
+      if (!ready()) throw Error("Install the v0.2.0 Android app first");
       if ((await LocalNotifications.checkPermissions()).display !== "granted")
         throw Error("Enable device reminders first");
       await LocalNotifications.schedule({
@@ -177,6 +199,8 @@ export function useDeviceReminders(state) {
             title: "TaDa notification test",
             body: "Device notifications are working.",
             channelId: "tada-reminders",
+            smallIcon: "ic_stat_tada",
+            iconColor: "#006644",
             schedule: { at: new Date(Date.now() + 1500), allowWhileIdle: true },
             extra: { kind: "test" },
           },

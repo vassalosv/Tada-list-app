@@ -6,6 +6,10 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
 
 public class MainActivity extends BridgeActivity {
+    @Override public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(NativeAlertsPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
     @Override protected void load() {
         String address = getSharedPreferences("tada-server", MODE_PRIVATE).getString("origin", "");
         try { address = ServerAddress.normalize(address); }
