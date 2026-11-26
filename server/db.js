@@ -16,26 +16,15 @@ CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY,task TEXT,at INTEGER,re
 CREATE TABLE IF NOT EXISTS notifications(id TEXT PRIMARY KEY,user TEXT,task TEXT,title TEXT,created INTEGER,seen INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS deadline_sent(task TEXT,due TEXT,PRIMARY KEY(task,due));
 CREATE TABLE IF NOT EXISTS subscriptions(endpoint TEXT PRIMARY KEY,user TEXT,data TEXT);
+CREATE TABLE IF NOT EXISTS push_delivery(user TEXT PRIMARY KEY,status TEXT,code INTEGER,at INTEGER);
 CREATE TABLE IF NOT EXISTS push_jobs(id TEXT PRIMARY KEY,notification TEXT,attempts INTEGER DEFAULT 0,next INTEGER DEFAULT 0);`);
 export const all = (q, ...p) => db.prepare(q).all(...p);
 export const get = (q, ...p) => db.prepare(q).get(...p);
 export const run = (q, ...p) => db.prepare(q).run(...p);
 export const id = () => randomUUID();
-export function nextDate(value, repeat) {
-  let d = new Date(value);
-  if (repeat === "daily") d.setUTCDate(d.getUTCDate() + 1);
-  if (repeat === "weekly") d.setUTCDate(d.getUTCDate() + 7);
-  if (repeat === "monthly") {
-    let day = d.getUTCDate();
-    d.setUTCDate(1);
-    d.setUTCMonth(d.getUTCMonth() + 1);
-    let end = new Date(
-      Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0),
-    ).getUTCDate();
-    d.setUTCDate(Math.min(day, end));
-  }
-  return d.toISOString();
-}
+import { nextDate } from "../shared/dates.js";
+export { nextDate };
+export const schedulerStatus = { lastRun: null, lastError: null };
 export function tick(now = Date.now()) {
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -83,8 +72,11 @@ export function tick(now = Date.now()) {
       }
     }
     db.exec("COMMIT");
+    schedulerStatus.lastRun = now;
+    schedulerStatus.lastError = null;
   } catch (e) {
     db.exec("ROLLBACK");
+    schedulerStatus.lastError = "Reminder worker failed; check server logs";
     throw e;
   }
 }

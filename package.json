@@ -1,6 +1,6 @@
 {
   "name": "tada",
-  "version": "1.0.0",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,11 +9,13 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "test": "node --test tests/*.test.js",
     "android:sync": "npm run build && cap sync android",
-    "push:setup": "node scripts/configure-push.mjs"
+    "push:setup": "node scripts/configure-push.mjs",
+    "reminders:check": "node scripts/check-reminders.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.0",
     "@capacitor/core": "^7.4.0",
+    "@capacitor/local-notifications": "^7.0.7",
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "@material/material-color-utilities": "^0.4.0",

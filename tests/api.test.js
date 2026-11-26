@@ -253,6 +253,19 @@ test("authenticated collaboration, durable files, recurrence, reminders and acce
     forbidden.append("task", JSON.stringify(task(list)));
     assert.equal((await request("/tasks/create", forbidden, cc)).status, 403);
     assert.equal((await request("/auth/google", undefined, ac)).status, 404);
+    assert.equal((await request("/notifications/status")).status, 401);
+    const diagnostic = await request("/notifications/status", undefined, ac);
+    assert.equal(diagnostic.status, 200);
+    assert.ok(diagnostic.data.worker.lastRun);
+    assert.equal(typeof diagnostic.data.pushConfigured, "boolean");
+    const testNotification = await request("/notifications/test", {}, ac);
+    assert.equal(testNotification.status, 200);
+    assert.ok(
+      (await request("/state", undefined, ac)).data.notifications.some(
+        (n) => n.title === "Test notification from TaDa",
+      ),
+    );
+    assert.equal((await request("/notifications/test", {}, ac)).status, 429);
     const second = (
       await request("/auth/login", {
         email: "alice@example.com",

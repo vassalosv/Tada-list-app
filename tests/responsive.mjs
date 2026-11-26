@@ -124,13 +124,11 @@ for (const engine of [chromium, webkit]) {
     await page
       .getByRole("textbox", { name: "Subtask", exact: true })
       .fill("Still here");
-    await page
-      .locator(".detail input[type=file]")
-      .setInputFiles({
-        name: "fold.txt",
-        mimeType: "text/plain",
-        buffer: Buffer.from("Keep my attachment"),
-      });
+    await page.locator(".detail input[type=file]").setInputFiles({
+      name: "fold.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Keep my attachment"),
+    });
     for (const [width, height] of [
       [717, 800],
       [1100, 720],

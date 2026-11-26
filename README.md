@@ -68,17 +68,15 @@ Push keys have been configured for this local installation, and the public-key/p
 
 The `android/` directory is a generated Capacitor 7 project. Android compilation was verified with JDK 21 and Android SDK 35. Capacitor packaging follows the official [Android workflow](https://capacitorjs.com/docs/android).
 
-The app needs a reachable backend: it is not an offline-first app. For an operational build, point the WebView at your deployed HTTPS origin before syncing:
+The app needs a reachable **HTTPS** backend; it is not offline-first. Starting with **v0.1.1**, the Android launcher opens a native server setup screen before any web login page. Enter your server origin (for this installation, `https://tada-list.duckdns.org`), then choose **Open TaDa**. The app validates the certificate and checks that `/api/state` returns the TaDa JSON API before loading it in the WebView. A saved address is remembered across launches. Use Android Back from the root TaDa page to return to setup and change it. The setup screen remains available when the server cannot be reached.
 
-```powershell
-$env:TADA_SERVER_URL='https://tada.example.com'
-npm run android:sync
-npx cap open android
-```
+The v0.1.0 APK had no configured backend address; login/signup incorrectly attempted `/api` against the packaged local web assets, producing an HTML-as-JSON error. Install the v0.1.1 debug APK as an update. It uses Android versionCode 2 and the same application ID. A compatible debug signing key is required for an in-place update.
 
-In Android Studio choose Build APK, or use `android/gradlew assembleDebug` with JDK 21 and the Android SDK configured. TADA_SERVER_URL only accepts HTTPS. Do not point it at localhost on a phone. The unconfigured debug APK included under `android/app/build/outputs/apk/debug/` is a **packaging smoke-test build**, not a connected production installation. Build again with your server URL after deploying. The production origin must also be APP_ORIGIN on the server.
+The server chooser works with the v0.1.0 email/password backend; **no backend upgrade is required for Android setup**. Your public HTTPS address must work in the phone browser first. It cannot solve blocked router/ISP ports, certificate issuance failures, or an offline server. HTTP and untrusted/self-signed TLS are rejected. No certificate validation is bypassed. Plain HTTP LAN addresses are not supported by this Android setup flow.
 
-Local account login, the responsive UI and file picking use the shared WebView. Native background push, offline sync, native audio recording and app-store signing/publishing are not included. Existing audio files can be attached through the file picker.
+To rebuild: `npm ci`, `npm run android:sync`, then `npx cap open android`. Android Studio/JDK 21 and SDK 35 are required. The launcher uses the address selected on the device; a build-time TADA_SERVER_URL is not needed for this flow.
+
+Local email/password accounts and the responsive UI run against the selected server. Native background push, offline sync, native audio recording and app-store signing/publishing are not included. Existing audio files can be selected for attachment. Native server chooser runtime behavior has not been tested on a physical phone or emulator in this environment; Android compilation and URL-validation unit tests pass.
 
 ## Validation
 
@@ -140,3 +138,7 @@ To change your password, enter the current password, a new password of 12–256 
 `npm test` covers incorrect current passwords, mismatched confirmation, short/reused passwords, authentication requirements, successful updates, old/new login behavior and other-session revocation. With the server running, `node tests/profile.mjs` checks the panel in Chromium and WebKit at six viewport sizes, including password-change flows and clearing of entered secrets.
 
 The push configuration smoke check is `node tests/push-config.mjs` against the running configured server. It confirms only the public key is returned and the enable action reaches browser permission, without granting permission or enrolling a temporary browser. Local `http://localhost:3001` supports browser push; a phone connecting through a LAN IP needs HTTPS.
+
+## v0.1.2 notification delivery
+
+See `UPGRADE_v0.1.2.md` for Pi Docker upgrade and notification setup. This version adds delivery diagnostics/test buttons and Android LOCAL device reminders (separate from browser push or native FCM). Install the new APK AND update the server UI. Native background FCM remains unimplemented; local scheduled alarms work from the last synced task/reminder state, with the horizon/OS limits described in the upgrade guide.

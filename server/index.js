@@ -10,7 +10,17 @@ import {
 } from "node:crypto";
 import { resolve } from "node:path";
 import { unlinkSync } from "node:fs";
-import { db, dir, all, get, run, id, tick, nextDate } from "./db.js";
+import {
+  db,
+  dir,
+  all,
+  get,
+  run,
+  id,
+  tick,
+  nextDate,
+  schedulerStatus,
+} from "./db.js";
 import { pushEnabled, sendPush } from "./push.js";
 const app = express();
 const origin =
@@ -629,6 +639,57 @@ app.post("/api/notifications/read", (req, res) => {
   run("UPDATE notifications SET seen=1 WHERE user=?", req.user);
   res.json({ ok: true });
 });
+app.get("/api/notifications/status", (req, res) =>
+  res.json({
+    serverTime: new Date().toISOString(),
+    worker: schedulerStatus,
+    pushConfigured: pushEnabled,
+    devices: get(
+      "SELECT COUNT(*) count FROM subscriptions WHERE user=?",
+      req.user,
+    ).count,
+    dueReminders: get(
+      "SELECT COUNT(*) count FROM reminders r JOIN tasks t ON t.id=r.task JOIN members m ON m.list=t.list WHERE m.user=? AND r.at<=?",
+      req.user,
+      Date.now(),
+    ).count,
+    nextReminder: get(
+      "SELECT MIN(r.at) at FROM reminders r JOIN tasks t ON t.id=r.task JOIN members m ON m.list=t.list WHERE m.user=?",
+      req.user,
+    )?.at,
+    lastDelivery:
+      get("SELECT status,code,at FROM push_delivery WHERE user=?", req.user) ||
+      null,
+  }),
+);
+const testTimes = new Map();
+app.post(
+  "/api/notifications/test",
+  wrap((req, res) => {
+    if (Date.now() - (testTimes.get(req.user) || 0) < 30000)
+      fail(429, "Wait 30 seconds before another test");
+    testTimes.set(req.user, Date.now());
+    const nid = id();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      run(
+        "INSERT INTO notifications(id,user,task,title,created) VALUES(?,?,?,?,?)",
+        nid,
+        req.user,
+        null,
+        "Test notification from TaDa",
+        Date.now(),
+      );
+      run("INSERT INTO push_jobs(id,notification) VALUES(?,?)", id(), nid);
+      db.exec("COMMIT");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+    sendPush().catch(console.error);
+    res.json({ ok: true, pushConfigured: pushEnabled });
+  }),
+);
 app.get("/api/push/config", (req, res) =>
   res.json({ publicKey: pushEnabled ? process.env.VAPID_PUBLIC_KEY : null }),
 );

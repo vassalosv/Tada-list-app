@@ -68,15 +68,13 @@ await page.getByRole("button", { name: "+ Add a step", exact: true }).click();
 await page
   .getByRole("textbox", { name: "Subtask", exact: true })
   .fill("First little step");
-await page
-  .locator(".detail input[type=file]")
-  .setInputFiles([
-    {
-      name: "draft.txt",
-      mimeType: "text/plain",
-      buffer: Buffer.from("Draft attachment"),
-    },
-  ]);
+await page.locator(".detail input[type=file]").setInputFiles([
+  {
+    name: "draft.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("Draft attachment"),
+  },
+]);
 await page.getByText("Ready to upload when saved").waitFor();
 await page
   .getByRole("button", { name: "+ Schedule a reminder", exact: true })

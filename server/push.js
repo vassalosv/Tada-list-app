@@ -32,12 +32,13 @@ export async function sendPush({
         get("SELECT * FROM tasks WHERE id=?", notification.task);
       if (
         !notification ||
-        !task ||
-        !get(
-          "SELECT 1 FROM members WHERE list=? AND user=?",
-          task.list,
-          notification.user,
-        )
+        (notification.task &&
+          (!task ||
+            !get(
+              "SELECT 1 FROM members WHERE list=? AND user=?",
+              task.list,
+              notification.user,
+            )))
       ) {
         run("DELETE FROM push_jobs WHERE id=?", job.id);
         continue;
@@ -46,7 +47,9 @@ export async function sendPush({
         "SELECT * FROM subscriptions WHERE user=?",
         notification.user,
       );
-      let retry = false;
+      let retry = false,
+        delivered = 0,
+        lastCode = null;
       for (const s of subscriptions) {
         try {
           await send(
@@ -54,12 +57,34 @@ export async function sendPush({
             JSON.stringify({ title: notification.title, id: notification.id }),
             { TTL: 86400, timeout: 10000 },
           );
+          delivered++;
         } catch (e) {
+          lastCode = Number.isInteger(e.statusCode) ? e.statusCode : 0;
+          console.warn("Browser push delivery failed", {
+            status: lastCode,
+            retrying: ![404, 410].includes(lastCode),
+          });
           if ([404, 410].includes(e.statusCode))
             run("DELETE FROM subscriptions WHERE endpoint=?", s.endpoint);
           else retry = true;
         }
       }
+      const status = !subscriptions.length
+        ? "no_devices"
+        : retry
+          ? delivered
+            ? "partial"
+            : "retrying"
+          : delivered
+            ? "delivered"
+            : "expired_subscription";
+      run(
+        "INSERT INTO push_delivery VALUES(?,?,?,?) ON CONFLICT(user) DO UPDATE SET status=excluded.status,code=excluded.code,at=excluded.at",
+        notification.user,
+        status,
+        lastCode,
+        Date.now(),
+      );
       if (retry && job.attempts < 8)
         run(
           "UPDATE push_jobs SET attempts=attempts+1,next=? WHERE id=?",
