@@ -42,4 +42,4 @@ Run `npm test` for isolated API/worker tests. Read README for browser test comma
 
 ## Notification delivery
 
-See `UPGRADE_v0.1.2.md` for browser push keys/permission and native Android reminder setup. Both updated server assets and APK are needed for Android reminder controls. No Firebase credentials are required for local device scheduling.
+See `UPGRADE_v0.2.0.md` for Spaces, Android system notifications and upgrade steps; `UPGRADE_v0.1.2.md` covers browser push keys/permission. Both updated server assets and APK are needed for Android reminder controls. No Firebase credentials are required for local device scheduling.

@@ -22,6 +22,38 @@ export const all = (q, ...p) => db.prepare(q).all(...p);
 export const get = (q, ...p) => db.prepare(q).get(...p);
 export const run = (q, ...p) => db.prepare(q).run(...p);
 export const id = () => randomUUID();
+// A workspace is personal organization. Sharing a list never shares the
+// owner's other workspace/list names or changes another member's placement.
+db.exec(`CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,user TEXT NOT NULL,name TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS list_workspaces(user TEXT NOT NULL,list TEXT NOT NULL,workspace TEXT NOT NULL,PRIMARY KEY(user,list));
+CREATE INDEX IF NOT EXISTS workspace_user ON workspaces(user);
+CREATE INDEX IF NOT EXISTS notification_cursor ON notifications(user,created,id);`);
+export function defaultWorkspace(user) {
+  let workspace = get(
+    "SELECT id FROM workspaces WHERE user=? ORDER BY rowid LIMIT 1",
+    user,
+  )?.id;
+  if (!workspace) {
+    workspace = id();
+    run("INSERT INTO workspaces VALUES(?,?,?)", workspace, user, "Personal");
+  }
+  return workspace;
+}
+db.exec("BEGIN IMMEDIATE");
+try {
+  for (const { id: user } of all("SELECT id FROM users")) {
+    const workspace = defaultWorkspace(user);
+    run(
+      "INSERT OR IGNORE INTO list_workspaces SELECT user,list,? FROM members WHERE user=?",
+      workspace,
+      user,
+    );
+  }
+  db.exec("COMMIT");
+} catch (error) {
+  db.exec("ROLLBACK");
+  throw error;
+}
 import { nextDate } from "../shared/dates.js";
 export { nextDate };
 export const schedulerStatus = { lastRun: null, lastError: null };

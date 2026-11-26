@@ -1,3 +1,34 @@
+# TaDa v0.2.0 — Your spaces, closer at hand
+
+**Release date:** 26 November 2026
+**Status:** Preview / debug Android build
+
+## Added and changed
+
+- Up to 20 personal **Spaces**, with creation, renaming, list moves and safe removal that preserves lists/tasks. Existing accounts migrate into Personal automatically; shared-list permissions and each recipient’s private organization are preserved.
+- Lists-first landing on phones/Android, a labelled left menu, and direct quick-list navigation.
+- A compact bell beside task titles when reminders are set.
+- A consistent **Emerald** default theme matching the supplied green checkmark icon, across sign-in, dashboard, navigation, dialogs and native server setup. Existing theme choices remain available and saved preferences are retained.
+- Supplied artwork for the app brand, favicon, Android launcher and launch screens.
+- Android system notifications through native alarms and a native authenticated background inbox worker. Android settings now expose Android controls; VAPID/browser setup is reserved for the web app.
+- Native delivery deduplicates matching recent local alarms, validates account identity and current list access, and cancels work on disable/logout. Credentials are not exposed to JavaScript or included in release artifacts.
+
+## Deployment and limits
+
+Update both the server/web assets and Android APK. See `UPGRADE_v0.2.0.md` for backup, Docker update and permission steps. Android versionCode is 4; the APK is debug signed.
+
+Native background inbox checks run approximately every 15 minutes and can be delayed by Android. Saved local alarms provide scheduled timing; open the app after remote edits to refresh their times/cancellations. Force-stop, notification denial, session expiry, Doze, exact-alarm permission and battery restrictions affect delivery. Real-time FCM push is not implemented. Physical-device delivery needs verification on your phone.
+
+The release excludes private settings, accounts, databases, uploads and private push keys.
+
+## Validation
+
+- Automated API, scheduling, native synchronization and legacy-to-Spaces migration/access-control tests.
+- Production web build and phone/foldable/desktop UI checks at five widths, including Android-specific notification presentation.
+- Android APK compilation and JVM tests for server URL validation and notification duplicate policy.
+
+---
+
 # TaDa v0.1.2 — notification delivery update
 
 **Release date:** 25 November 2026  

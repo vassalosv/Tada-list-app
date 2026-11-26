@@ -1,13 +1,14 @@
 """Create a release from an explicit payload list, without local user data."""
 from pathlib import Path
 import hashlib, io, json, re, sqlite3, shutil, zipfile
+from datetime import date
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version']
 NAME = 'TaDa-v'+VERSION
 OUT = ROOT/'releases'/('v'+VERSION)
 OUT.mkdir(parents=True, exist_ok=True)
-ROOT_FILES = ['package.json','package-lock.json','index.html','vite.config.js','capacitor.config.ts','Dockerfile','compose.yaml','.env.example','.gitignore','.dockerignore','README.md','QUICK_START.md','RELEASE_NOTES.md','UPGRADE_v0.1.2.md']
+ROOT_FILES = ['package.json','package-lock.json','index.html','vite.config.js','capacitor.config.ts','Dockerfile','compose.yaml','.env.example','.gitignore','.dockerignore','README.md','QUICK_START.md','RELEASE_NOTES.md','UPGRADE_v0.1.2.md','UPGRADE_v0.2.0.md']
 PAYLOAD = {name:(ROOT/name).read_bytes() for name in ROOT_FILES}
 for directory in ['src','server','shared','public','scripts','tests','dist','android']:
     for path in sorted((ROOT/directory).rglob('*')):
@@ -56,12 +57,12 @@ for name,content in PAYLOAD.items():
     if name.endswith('.apk'):
         with zipfile.ZipFile(io.BytesIO(content)) as nested:
             for item in nested.infolist(): check_private(name+':'+item.filename,nested.read(item))
-manifest={'product':'TaDa','version':VERSION,'releaseDate':'2026-11-25','androidVariant':'debug; HTTPS backend selected on device','files':{name:{'bytes':len(content),'sha256':hashlib.sha256(content).hexdigest()} for name,content in sorted(PAYLOAD.items())}}
+manifest={'product':'TaDa','version':VERSION,'releaseDate':date.today().isoformat(),'androidVariant':'debug; HTTPS backend selected on device','files':{name:{'bytes':len(content),'sha256':hashlib.sha256(content).hexdigest()} for name,content in sorted(PAYLOAD.items())}}
 PAYLOAD['release-manifest.json']=(json.dumps(manifest,indent=2)+'\n').encode()
 archive=OUT/(NAME+'.zip')
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
     for name,content in sorted(PAYLOAD.items()):
-        info=zipfile.ZipInfo(NAME+'/'+name,date_time=(2026,11,25,12,0,0));info.compress_type=zipfile.ZIP_DEFLATED
+        info=zipfile.ZipInfo(NAME+'/'+name,date_time=(*date.today().timetuple()[:3],12,0,0));info.compress_type=zipfile.ZIP_DEFLATED
         info.external_attr=(0o100755 if name=='android/gradlew' else 0o100644)<<16
         z.writestr(info,content)
 with zipfile.ZipFile(archive) as z:

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "./api.js";
+import { pollNativeAlerts } from "./device-reminders.js";
 export function NotificationSettings({ device, enableBrowser, refresh }) {
   const [status, setStatus] = useState(null),
     [error, setError] = useState(""),
@@ -49,18 +50,22 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
                     : "Scheduler running")}
             </dd>
           </div>
-          <div>
-            <dt>Browser push on this server</dt>
-            <dd>
-              {status.pushConfigured
-                ? "Configured"
-                : "Not configured on the Pi"}
-            </dd>
-          </div>
-          <div>
-            <dt>Registered browsers for your account</dt>
-            <dd>{status.devices}</dd>
-          </div>
+          {!device.native && (
+            <div>
+              <dt>Browser push on this server</dt>
+              <dd>
+                {status.pushConfigured
+                  ? "Configured"
+                  : "Not configured on the Pi"}
+              </dd>
+            </div>
+          )}
+          {!device.native && (
+            <div>
+              <dt>Registered browsers for your account</dt>
+              <dd>{status.devices}</dd>
+            </div>
+          )}
           <div>
             <dt>Next saved reminder</dt>
             <dd>
@@ -69,7 +74,7 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
                 : "None scheduled"}
             </dd>
           </div>
-          {status.lastDelivery && (
+          {!device.native && status.lastDelivery && (
             <div>
               <dt>Last browser delivery</dt>
               <dd>
@@ -97,14 +102,14 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
                 action(async () => {
                   await device.enable();
                   setMessage(
-                    "Device reminders enabled. Keep TaDa open briefly to sync.",
+                    "Android notifications enabled. Syncing this phone’s alarms.",
                   );
                 })
               }
             >
               {device.enabled
-                ? "Sync device reminders"
-                : "Enable device reminders"}
+                ? "Sync Android notifications"
+                : "Enable Android notifications"}
             </button>
             <button
               className="outline"
@@ -119,7 +124,7 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
                 disabled={busy}
                 onClick={() => action(device.disable)}
               >
-                Disable device reminders
+                Disable Android notifications
               </button>
             )}
           </>
@@ -139,10 +144,13 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
             action(async () => {
               const result = await api("/notifications/test", {});
               await refresh();
+              if (device.native) await pollNativeAlerts();
               setMessage(
-                result.pushConfigured
-                  ? "Test added to your inbox and queued for browser push."
-                  : "Test added to your inbox. Configure push keys on the Pi for browser alerts.",
+                device.native
+                  ? "Test added to your inbox and queued for an Android notification. Enable Android notifications first."
+                  : result.pushConfigured
+                    ? "Test added to your inbox and queued for browser push."
+                    : "Test added to your inbox. Configure push keys on the Pi for browser alerts.",
               );
             })
           }
@@ -154,10 +162,10 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
         <>
           <p className="hint">
             {!device.available
-              ? "This APK needs updating to v0.1.2."
+              ? "This APK needs updating to v0.2.0."
               : device.enabled
                 ? `${device.count} alerts synced to this phone. ${device.precise ? "Precise timing is allowed." : "Android may delay alerts; allow Alarms & reminders for precise timing."}`
-                : "Android device reminders need notification permission. Browser push does not deliver through the APK."}
+                : "Allow TaDa notifications to see reminders in Android’s notification shade."}
           </p>
           {device.enabled && !device.precise && (
             <button
@@ -168,9 +176,11 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
             </button>
           )}
           <p className="hint">
-            Scheduled on this phone for the next 30 days, up to 256 alerts. Open
-            TaDa after shared tasks change or to refresh future schedules. These
-            are local reminders, not background server push.
+            Reminders use Android alarms (up to 256 scheduled alerts). Open TaDa
+            after shared tasks change to refresh precise times.
+            {device.background
+              ? " Native background checks also deliver new server alerts, approximately every 15 minutes; Android battery settings can delay them. No browser push or VAPID keys are needed for this APK."
+              : " Install the v0.2.0 APK for native background checks."}
           </p>
         </>
       )}

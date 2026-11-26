@@ -6,13 +6,13 @@ import {
   hexFromArgb,
   themeFromSourceColor,
 } from "@material/material-color-utilities";
-const defaults = { mode: "pastel", color: "#6750a4", dark: false };
+const defaults = { mode: "emerald", color: "#006644", dark: false };
 function readTheme() {
   try {
     const v = JSON.parse(localStorage.getItem("tada.theme"));
     if (
       v &&
-      ["pastel", "dark", "material", "custom"].includes(v.mode) &&
+      ["emerald", "pastel", "dark", "material", "custom"].includes(v.mode) &&
       /^#[\da-f]{6}$/i.test(v.color)
     )
       return v;
@@ -21,7 +21,13 @@ function readTheme() {
 }
 function schemeFor(t) {
   return themeFromSourceColor(
-    argbFromHex(t.mode === "material" ? "#1a73e8" : t.color),
+    argbFromHex(
+      t.mode === "emerald"
+        ? "#006644"
+        : t.mode === "material"
+          ? "#1a73e8"
+          : t.color,
+    ),
   ).schemes[
     t.mode === "dark" || (t.mode === "custom" && t.dark) ? "dark" : "light"
   ];
@@ -47,6 +53,22 @@ function apply(t) {
   };
   for (const [k, v] of Object.entries(values))
     root.style.setProperty("--theme-" + k, hexFromArgb(v));
+  if (t.mode === "emerald") {
+    for (const [name, value] of Object.entries({
+      bg: "#f4f8f6",
+      surface: "#ffffff",
+      text: "#192c23",
+      muted: "#4d6358",
+      line: "#d5e2da",
+      accent: "#006644",
+      "on-accent": "#ffffff",
+      active: "#d1e9da",
+      "on-active": "#002e1d",
+      card: "#e8efeb",
+      "on-card": "#274536",
+    }))
+      root.style.setProperty("--theme-" + name, value);
+  }
   const isDark = t.mode === "dark" || (t.mode === "custom" && t.dark);
   const base = Hct.fromInt(argbFromHex(t.color)).hue;
   const hues =
@@ -65,7 +87,11 @@ function apply(t) {
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute(
       "content",
-      t.mode === "pastel" ? "#f7f8fc" : hexFromArgb(s.background),
+      t.mode === "emerald"
+        ? "#f4f8f6"
+        : t.mode === "pastel"
+          ? "#f7f8fc"
+          : hexFromArgb(s.background),
     );
 }
 export function ThemeButton() {
@@ -136,6 +162,7 @@ export function ThemeButton() {
             <h2 id="theme-title">Choose your theme</h2>
             <div className="theme-options">
               {[
+                ["emerald", "Emerald", "Clear & grounded"],
                 ["pastel", "Pastel", "Soft & familiar"],
                 ["dark", "Dark", "Easy on the eyes"],
                 ["material", "Material", "Clean & colorful"],

@@ -29,6 +29,8 @@ import {
   Menu,
 } from "lucide-react";
 import "./style.css";
+import { ListsHome, WorkspaceSettings } from "./workspaces.jsx";
+import { isNativeDevice } from "./device-reminders.js";
 import { ThemeButton } from "./themes.jsx";
 import { Profile } from "./profile.jsx";
 import {
@@ -72,7 +74,12 @@ function App() {
   const [state, setState] = useState(null),
     [auth, setAuth] = useState("login"),
     [error, setError] = useState(""),
-    [view, setView] = useState("Today"),
+    [view, setView] = useState(() =>
+      isNativeDevice() || matchMedia("(max-width: 1000px)").matches
+        ? "Lists"
+        : "Today",
+    ),
+    [workspaceId, setWorkspaceId] = useState(null),
     [query, setQuery] = useState(""),
     [sort, setSort] = useState("date"),
     [edit, setEdit] = useState(null),
@@ -84,6 +91,41 @@ function App() {
     [busy, setBusy] = useState(false),
     [toast, setToast] = useState("");
   const device = useDeviceReminders(state);
+  useEffect(() => {
+    if (
+      state &&
+      !["Lists", "Today", "Scheduled", "All", "Overdue", "Starred"].includes(
+        view,
+      ) &&
+      !state.lists.some((l) => l.id === view && l.workspace === workspaceId)
+    )
+      setView("Lists");
+  }, [state, view, workspaceId]);
+  function signedOut() {
+    setState(null);
+    setWorkspaceId(null);
+    setEdit(null);
+    setModal(null);
+    setSidebar(false);
+    setView(
+      isNativeDevice() || matchMedia("(max-width: 1000px)").matches
+        ? "Lists"
+        : "Today",
+    );
+  }
+
+  useEffect(() => {
+    if (state && workspaceId)
+      localStorage.setItem("tada.workspace." + state.user.id, workspaceId);
+  }, [workspaceId, state?.user?.id]);
+  function switchWorkspace(id) {
+    setWorkspaceId(id);
+    setView("Lists");
+    setQuery("");
+    setEdit(null);
+    setModal(null);
+    setSidebar(false);
+  }
   useEffect(() => {
     const media = matchMedia("(max-width: 1000px)");
     const change = () => {
@@ -113,15 +155,19 @@ function App() {
   async function load() {
     try {
       let s = await api("/state");
+      setWorkspaceId((current) => {
+        const saved =
+          current || localStorage.getItem("tada.workspace." + s.user.id);
+        return (
+          s.workspaces?.find((w) => w.id === saved)?.id || s.workspaces?.[0]?.id
+        );
+      });
       setState(s);
       return s;
     } catch (e) {
       if (e.message === "Please sign in") {
         clearDeviceReminders().catch(() => {});
-        setState(null);
-        setEdit(null);
-        setModal(null);
-        setSidebar(false);
+        signedOut();
       } else setError(e.message);
     }
   }
@@ -222,7 +268,8 @@ function App() {
       <div className="auth-shell">
         <div className="auth-art">
           <div className="brand">
-            <Flower2 /> TaDa<span>®</span>
+            <img className="app-icon" src="/tada-icon.png" alt="" /> TaDa
+            <span>®</span>
           </div>
           <h1>
             A little more done.
@@ -262,7 +309,7 @@ function App() {
           }}
         >
           <div className="brand mobile-brand">
-            <Flower2 /> TaDa
+            <img className="app-icon" src="/tada-icon.png" alt="" /> TaDa
           </div>
           <div className="auth-theme">
             <ThemeButton />
@@ -345,7 +392,13 @@ function App() {
         </form>
       </div>
     );
-  const { tasks, lists, user, notifications } = state;
+  const { user, notifications } = state;
+  const workspaces = state.workspaces || [];
+  const workspace =
+    workspaces.find((w) => w.id === workspaceId) || workspaces[0];
+  const lists = state.lists.filter((l) => l.workspace === workspace?.id);
+  const listIds = new Set(lists.map((l) => l.id));
+  const tasks = state.tasks.filter((t) => listIds.has(t.list));
   let today = new Date().toLocaleDateString();
   const matches = {
     Today: (t) => t.due && new Date(t.due).toLocaleDateString() === today,
@@ -355,6 +408,13 @@ function App() {
     Starred: (t) => t.star,
   };
   let selectedList = lists.find((l) => l.id === view);
+  function newTask() {
+    const list =
+      (selectedList?.role !== "view" ? selectedList : null) ||
+      lists.find((l) => l.role !== "view");
+    if (list) setEdit(blank(list.id));
+    else setModal({ type: "list" });
+  }
   let visible = tasks
     .filter(
       (t) =>
@@ -392,14 +452,38 @@ function App() {
           <X size={20} />
         </button>
         <div className="brand">
-          <Flower2 size={31} /> TaDa<span>®</span>
+          <img className="app-icon" src="/tada-icon.png" alt="" /> TaDa
+          <span>®</span>
         </div>
-        <div className="workspace">
-          <span className="workspace-icon">✦</span>
-          <div>
-            My workspace<small>A little more together</small>
-          </div>
+        <div className="workspace workspace-picker">
+          <label>
+            SPACES
+            <select
+              aria-label="Space"
+              value={workspace?.id || ""}
+              onChange={(e) => switchWorkspace(e.target.value)}
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="text-button"
+            aria-label="Manage spaces"
+            onClick={() => setModal({ type: "workspace" })}
+          >
+            Manage spaces
+          </button>
         </div>
+        <button
+          className={view === "Lists" ? "nav active" : "nav"}
+          onClick={() => nav("Lists")}
+        >
+          <Layers size={19} /> My lists <span>{lists.length}</span>
+        </button>
         <div className="nav-caption">YOUR SPACE</div>
         <button
           className={view === "Today" ? "nav active" : "nav"}
@@ -462,7 +546,7 @@ function App() {
             <span className="avatar">{user.name[0]}</span>
             <div>
               {user.name}
-              <small>Personal workspace</small>
+              <small>{workspace?.name}</small>
             </div>
             <button
               aria-label="Sign out"
@@ -480,7 +564,7 @@ function App() {
                   }
                   await clearDeviceReminders();
                   await api("/logout", {});
-                  setState(null);
+                  signedOut();
                 })
               }
             >
@@ -498,9 +582,11 @@ function App() {
             onClick={() => setSidebar(true)}
           >
             <Menu />
+            <span>Lists</span>
           </button>
           <span className="breadcrumb">
-            My workspace <ChevronRight size={14} /> {selectedList?.name || view}
+            {workspace?.name} <ChevronRight size={14} />{" "}
+            {selectedList?.name || view}
           </span>
           <div className="header-actions">
             <ThemeButton />
@@ -529,7 +615,35 @@ function App() {
             </button>
           </div>
         </header>
-        <div className="content">
+        <div className={"content" + (view === "Lists" ? " lists-first" : "")}>
+          {view === "Lists" && (
+            <ListsHome
+              workspace={workspace}
+              lists={lists}
+              tasks={tasks}
+              open={nav}
+              create={() => setModal({ type: "list" })}
+              device={device}
+              action={act}
+            />
+          )}
+          {view !== "Lists" && compact && (
+            <nav className="quick-lists" aria-label="Quick list access">
+              <button className="outline" onClick={() => nav("Lists")}>
+                <Layers size={16} /> All lists
+              </button>
+              {lists.map((l) => (
+                <button
+                  key={l.id}
+                  className={view === l.id ? "outline selected" : "outline"}
+                  onClick={() => nav(l.id)}
+                >
+                  {l.name}
+                </button>
+              ))}
+            </nav>
+          )}
+
           <div className="greeting">
             <div>
               <span className="eyebrow">A FRESH START, EVERY DAY</span>
@@ -542,17 +656,7 @@ function App() {
                 to make today a little brighter.
               </p>
             </div>
-            <button
-              className="primary"
-              onClick={() =>
-                setEdit(
-                  blank(
-                    selectedList?.id ||
-                      lists.find((l) => l.role !== "view")?.id,
-                  ),
-                )
-              }
-            >
+            <button className="primary" onClick={newTask}>
               <Plus size={19} /> New task
             </button>
           </div>
@@ -606,6 +710,33 @@ function App() {
                       : "Make room for what matters."}
                   </p>
                 </div>
+                {selectedList && (
+                  <label className="move-list">
+                    Space
+                    <select
+                      aria-label="Move list to space"
+                      value={workspace?.id || ""}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        act(async () => {
+                          await api(
+                            "/lists/" + selectedList.id + "/workspace",
+                            { workspace: id },
+                            "PUT",
+                          );
+                          await load();
+                          switchWorkspace(id);
+                        });
+                      }}
+                    >
+                      {workspaces.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 {selectedList && (
                   <button
                     className="outline"
@@ -665,7 +796,19 @@ function App() {
                       className="task-main"
                       onClick={() => setEdit(structuredClone(t))}
                     >
-                      <span className="task-title">{t.title}</span>
+                      <span className="task-title">
+                        {t.title}
+                        {t.reminders?.length > 0 && (
+                          <span
+                            className="reminder-badge"
+                            role="img"
+                            aria-label={`${t.reminders.length} reminder${t.reminders.length === 1 ? "" : "s"} set`}
+                            title={`${t.reminders.length} reminder(s) set`}
+                          >
+                            <Bell size={13} />
+                          </span>
+                        )}
+                      </span>
                       <span className="task-meta">
                         <span
                           className={
@@ -739,17 +882,7 @@ function App() {
                   </div>
                 )}
               </div>
-              <button
-                className="add-inline"
-                onClick={() =>
-                  setEdit(
-                    blank(
-                      selectedList?.id ||
-                        lists.find((l) => l.role !== "view")?.id,
-                    ),
-                  )
-                }
-              >
+              <button className="add-inline" onClick={newTask}>
                 <Plus size={19} /> Add a task <span>One small step…</span>
               </button>
               <div className="completion-note">
@@ -1171,13 +1304,29 @@ function App() {
                 changePassword={(body) => api("/profile/password", body)}
               />
             )}
+            {modal.type === "workspace" && workspace && (
+              <WorkspaceSettings
+                key={workspace.id}
+                workspaces={workspaces}
+                active={workspace}
+                busy={busy}
+                action={act}
+                changed={async (id) => {
+                  await load();
+                  switchWorkspace(id);
+                }}
+              />
+            )}
             {modal.type === "list" && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   let b = Object.fromEntries(new FormData(e.currentTarget));
                   act(async () => {
-                    let l = await api("/lists", b);
+                    let l = await api("/lists", {
+                      ...b,
+                      workspace: workspace?.id,
+                    });
                     await load();
                     setView(l.id);
                     setModal(null);
@@ -1383,7 +1532,12 @@ function App() {
                     key={n.id}
                     className={"notification " + (!n.seen ? "unread" : "")}
                     onClick={() => {
-                      let t = tasks.find((t) => t.id === n.task);
+                      let t = state.tasks.find((t) => t.id === n.task);
+                      if (t) {
+                        const target = state.lists.find((l) => l.id === t.list);
+                        setWorkspaceId(target?.workspace);
+                        setView(t.list);
+                      }
                       if (t) setEdit(structuredClone(t));
                       setModal(null);
                     }}
@@ -1396,9 +1550,9 @@ function App() {
                   </button>
                 ))}
                 <p className="hint">
-                  Reminders are stored on your server. This inbox refreshes
-                  while TaDa is open. Enable browser push above for background
-                  delivery on supported browsers. Your server needs VAPID keys.
+                  {device.native
+                    ? "Android delivers alerts through TaDa’s native notification channels. Allow notifications and precise alarms in Android settings."
+                    : "Enable browser push for alerts when this page is closed. Your server needs VAPID keys."}
                 </p>
               </>
             )}

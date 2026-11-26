@@ -68,15 +68,13 @@ Push keys have been configured for this local installation, and the public-key/p
 
 The `android/` directory is a generated Capacitor 7 project. Android compilation was verified with JDK 21 and Android SDK 35. Capacitor packaging follows the official [Android workflow](https://capacitorjs.com/docs/android).
 
-The app needs a reachable **HTTPS** backend; it is not offline-first. Starting with **v0.1.1**, the Android launcher opens a native server setup screen before any web login page. Enter your server origin (for this installation, `https://tada-list.duckdns.org`), then choose **Open TaDa**. The app validates the certificate and checks that `/api/state` returns the TaDa JSON API before loading it in the WebView. A saved address is remembered across launches. Use Android Back from the root TaDa page to return to setup and change it. The setup screen remains available when the server cannot be reached.
+The app needs a reachable **HTTPS** backend; it is not offline-first. The native launcher validates your server certificate and `/api/state` before opening the login page. Enter your origin (for this installation, `https://tada-list.duckdns.org:8443`) and choose **Open TaDa**. The device remembers it. Android Back from the root TaDa page returns to setup. HTTP and untrusted/self-signed TLS are rejected.
 
-The v0.1.0 APK had no configured backend address; login/signup incorrectly attempted `/api` against the packaged local web assets, producing an HTML-as-JSON error. Install the v0.1.1 debug APK as an update. It uses Android versionCode 2 and the same application ID. A compatible debug signing key is required for an in-place update.
+Install the v0.2.0 debug APK (application ID `app.tada.tasks`, versionCode 4). A compatible signing key is required for an in-place update. Update the server/web UI too; see [UPGRADE_v0.2.0.md](UPGRADE_v0.2.0.md).
 
-The server chooser works with the v0.1.0 email/password backend; **no backend upgrade is required for Android setup**. Your public HTTPS address must work in the phone browser first. It cannot solve blocked router/ISP ports, certificate issuance failures, or an offline server. HTTP and untrusted/self-signed TLS are rejected. No certificate validation is bypassed. Plain HTTP LAN addresses are not supported by this Android setup flow.
+Android alerts use native local alarms and a native authenticated background inbox worker, without browser push/VAPID keys. WorkManager checks approximately every 15 minutes and may be postponed by the OS. Open the app after shared reminder edits to refresh exact local alarm schedules. Notification and exact-alarm permission are controlled in Android settings. Real-time FCM push, offline sync, native audio recording and app-store publishing remain unimplemented.
 
-To rebuild: `npm ci`, `npm run android:sync`, then `npx cap open android`. Android Studio/JDK 21 and SDK 35 are required. The launcher uses the address selected on the device; a build-time TADA_SERVER_URL is not needed for this flow.
-
-Local email/password accounts and the responsive UI run against the selected server. Native background push, offline sync, native audio recording and app-store signing/publishing are not included. Existing audio files can be selected for attachment. Native server chooser runtime behavior has not been tested on a physical phone or emulator in this environment; Android compilation and URL-validation unit tests pass.
+To rebuild: `npm ci`, `npm run android:sync`, then `npx cap open android`. Android Studio/JDK 21 and SDK 35 are required. The native chooser uses the address selected on the device; a build-time TADA_SERVER_URL is not needed. Android compilation/JVM tests pass; physical-device setup and notification delivery still need testing.
 
 ## Validation
 
@@ -90,17 +88,17 @@ node tests/browser.mjs
 
 The API test uses three isolated accounts and a temporary database to verify session protection, view/edit permissions, unauthorized downloads, attachments, single-use invites, recurrence, reminders, CSRF origin rejection, validation and logout. Worker tests cover restart catch-up, deduplication, completed tasks, calendar month clamping, push retries and expired subscriptions. Browser checks create an account, create/edit tasks and subtasks, reload persisted state, navigate a 390px phone layout, schedule a reminder and complete a task, asserting no JavaScript errors or horizontal overflow. Browser tests intentionally add a test account to the running local server. Screenshots are saved in `screenshots/`.
 
-Verified: production web build, four automated test cases with many assertions, desktop/mobile Chromium flows, Android debug compilation. Not verified: real push delivery, Docker execution, physical Android device behavior or app-store release.
+Verified: production web build, 11 automated test cases with many assertions, desktop/mobile Chromium flows, Android debug compilation. Not verified: real push delivery, Docker execution, physical Android device behavior or app-store release.
 
 ## Operational limits
 
-This is a runnable foundation, not a claim of production certification. Collaboration uses polling and last-save-wins whole-task updates: simultaneous edits can overwrite one another. Recurrence follows UTC calendar time (monthly clamps to the last available day); it does not maintain a chosen local wall clock across daylight-saving changes. Reminders are bounded by server uptime and the 15-second tick; no delivery SLA is promised. Files are private but do not have malware scanning or encryption at rest. No account deletion, password reset, administrator console, audit log or automated migrations beyond additive table creation is included. Auth throttling is per-process/IP; configure a trusted edge limiter for public deployment. Monitor disk use and retained notification/outbox history.
+This is a runnable foundation, not a claim of production certification. Collaboration uses polling and last-save-wins whole-task updates: simultaneous edits can overwrite one another. Recurrence follows UTC calendar time (monthly clamps to the last available day); it does not maintain a chosen local wall clock across daylight-saving changes. Reminders are bounded by server uptime and the 15-second tick; no delivery SLA is promised. Files are private but do not have malware scanning or encryption at rest. No account deletion, password reset, administrator console, audit log or a general migration framework beyond the additive schema/Spaces migration is included. Auth throttling is per-process/IP; configure a trusted edge limiter for public deployment. Monitor disk use and retained notification/outbox history.
 
 Source map: `src/main.jsx` UI, `src/style.css` layout, `server/index.js` API/auth/authorization, `server/db.js` schema and reminder worker, `server/push.js` push dispatcher, `public/sw.js` browser notifications, `tests/` verification, `compose.yaml` deployment, `android/` native wrapper.
 
 ## Appearance and new task options
 
-Use the palette icon on the login screen or dashboard header to select **Pastel** (the original), **Dark**, **Material**, or **Custom**. Custom offers a hex/native color picker and Material HCT hue, chroma and tone controls, plus light/dark appearance. Matching surfaces/text colors use Google's Material color utilities. Apply saves the preference in this browser, including across sign-out and reload; Cancel leaves the current theme unchanged.
+Use the palette icon on the login screen or dashboard header to select **Emerald** (the default, matching the supplied icon), **Pastel** (the original), **Dark**, **Material**, or **Custom**. Custom offers a hex/native color picker and Material HCT hue, chroma and tone controls, plus light/dark appearance. Matching surfaces/text colors use Google's Material color utilities. Apply saves the preference in this browser, including across sign-out and reload; Cancel leaves the current theme unchanged.
 
 A new task already includes **Attachments** and **Reminders**. Choose up to ten files (20 MB each) and add multiple one-off or repeating reminders before Save. These remain local drafts until the task is saved; closing the editor discards them. Saving creates the task, attachment metadata and reminders in one database transaction; failures clean uploaded temporary files. Existing tasks still support adding/removing files and reminders.
 
@@ -142,3 +140,12 @@ The push configuration smoke check is `node tests/push-config.mjs` against the r
 ## v0.1.2 notification delivery
 
 See `UPGRADE_v0.1.2.md` for Pi Docker upgrade and notification setup. This version adds delivery diagnostics/test buttons and Android LOCAL device reminders (separate from browser push or native FCM). Install the new APK AND update the server UI. Native background FCM remains unimplemented; local scheduled alarms work from the last synced task/reminder state, with the horizon/OS limits described in the upgrade guide.
+
+
+## v0.2.0 — Spaces and native Android alerts
+
+See [UPGRADE_v0.2.0.md](UPGRADE_v0.2.0.md) for upgrade, migration, permission and delivery details. Up to 20 personal Spaces separate lists; existing lists move into Personal automatically. Phones open My lists, reminders have a bell indicator, and the Emerald default matches the supplied app/Android icon. Saved theme choices are retained.
+
+The v0.2.0 APK uses native Android alarms and authenticated WorkManager inbox checks, without browser push/VAPID keys. Background checks have a 15-minute minimum interval and may be delayed by Android; open the app after shared reminder edits to refresh exact alarm times. This is not real-time FCM delivery. Update both the APK and server UI.
+
+Run `node tests/v020-ui.mjs` for isolated UI checks across phone, foldable and desktop sizes. On Windows, `./scripts/android-icons.ps1` regenerates launcher assets and launch screens from `public/tada-icon.png`.
