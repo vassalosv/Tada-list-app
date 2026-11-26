@@ -31,22 +31,12 @@ import {
 import "./style.css";
 import { ThemeButton } from "./themes.jsx";
 import { Profile } from "./profile.jsx";
-const api = async (path, body, method = "POST") => {
-  let r = await fetch("/api" + path, {
-    method: body === undefined ? "GET" : method,
-    headers:
-      body instanceof FormData ? {} : { "Content-Type": "application/json" },
-    body:
-      body === undefined
-        ? undefined
-        : body instanceof FormData
-          ? body
-          : JSON.stringify(body),
-  });
-  let d = await r.json();
-  if (!r.ok) throw Error(d.error);
-  return d;
-};
+import {
+  useDeviceReminders,
+  clearDeviceReminders,
+} from "./device-reminders.js";
+import { NotificationSettings } from "./notification-settings.jsx";
+import { api } from "./api.js";
 // randomUUID requires HTTPS; draft identifiers must also work on a local Wi-Fi URL.
 const newId = () =>
   Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
@@ -93,6 +83,7 @@ function App() {
     ),
     [busy, setBusy] = useState(false),
     [toast, setToast] = useState("");
+  const device = useDeviceReminders(state);
   useEffect(() => {
     const media = matchMedia("(max-width: 1000px)");
     const change = () => {
@@ -126,6 +117,7 @@ function App() {
       return s;
     } catch (e) {
       if (e.message === "Please sign in") {
+        clearDeviceReminders().catch(() => {});
         setState(null);
         setEdit(null);
         setModal(null);
@@ -175,22 +167,38 @@ function App() {
       throw Error(
         "Push is not supported in this browser. The notification inbox still works.",
       );
-    let config = await api("/push/config");
-    if (!config.publicKey)
-      throw Error("Your server administrator must configure VAPID keys first.");
     let permission = await Notification.requestPermission();
     if (permission !== "granted")
       throw Error(
         "Allow notifications in your browser settings to enable push.",
       );
+    let config = await api("/push/config");
+    if (!config.publicKey)
+      throw Error("Your server administrator must configure VAPID keys first.");
     let reg = await navigator.serviceWorker.register("/sw.js");
     await navigator.serviceWorker.ready;
-    let sub =
-      (await reg.pushManager.getSubscription()) ||
-      (await reg.pushManager.subscribe({
+    const raw = config.publicKey.replace(/-/g, "+").replace(/_/g, "/");
+    const key = Uint8Array.from(
+      atob(raw + "=".repeat((4 - (raw.length % 4)) % 4)),
+      (c) => c.charCodeAt(0),
+    );
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      const previous = new Uint8Array(sub.options.applicationServerKey || []);
+      if (
+        previous.length !== key.length ||
+        previous.some((b, i) => b !== key[i])
+      ) {
+        await api("/push/unsubscribe", { endpoint: sub.endpoint });
+        await sub.unsubscribe();
+        sub = null;
+      }
+    }
+    if (!sub)
+      sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: config.publicKey,
-      }));
+        applicationServerKey: key,
+      });
     await api("/push/subscribe", sub.toJSON());
     setToast("Browser notifications enabled");
   }
@@ -470,6 +478,7 @@ function App() {
                       await sub.unsubscribe();
                     }
                   }
+                  await clearDeviceReminders();
                   await api("/logout", {});
                   setState(null);
                 })
@@ -1350,9 +1359,11 @@ function App() {
               <>
                 <h2>Your gentle nudges</h2>
                 <p>Upcoming deadlines and scheduled reminders.</p>
-                <button className="outline" onClick={() => act(enablePush)}>
-                  Enable browser push
-                </button>
+                <NotificationSettings
+                  device={device}
+                  enableBrowser={enablePush}
+                  refresh={load}
+                />
                 <button
                   className="text-button"
                   onClick={() =>

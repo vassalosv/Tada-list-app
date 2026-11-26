@@ -1,3 +1,4 @@
+import { version } from "../package.json";
 import React, { useState } from "react";
 import { LockKeyhole, Check } from "lucide-react";
 export function Profile({ user, changePassword }) {
@@ -29,6 +30,10 @@ export function Profile({ user, changePassword }) {
         <div>
           <dt>Email address</dt>
           <dd>{user.email}</dd>
+        </div>
+        <div>
+          <dt>App version</dt>
+          <dd>TaDa {version}</dd>
         </div>
         <div>
           <dt>Password</dt>

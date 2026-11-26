@@ -7,9 +7,9 @@ VERSION = json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version
 NAME = 'TaDa-v'+VERSION
 OUT = ROOT/'releases'/('v'+VERSION)
 OUT.mkdir(parents=True, exist_ok=True)
-ROOT_FILES = ['package.json','package-lock.json','index.html','vite.config.js','capacitor.config.ts','Dockerfile','compose.yaml','.env.example','.gitignore','.dockerignore','README.md','QUICK_START.md','RELEASE_NOTES.md']
+ROOT_FILES = ['package.json','package-lock.json','index.html','vite.config.js','capacitor.config.ts','Dockerfile','compose.yaml','.env.example','.gitignore','.dockerignore','README.md','QUICK_START.md','RELEASE_NOTES.md','UPGRADE_v0.1.2.md']
 PAYLOAD = {name:(ROOT/name).read_bytes() for name in ROOT_FILES}
-for directory in ['src','server','public','scripts','tests','dist','android']:
+for directory in ['src','server','shared','public','scripts','tests','dist','android']:
     for path in sorted((ROOT/directory).rglob('*')):
         rel=path.relative_to(ROOT)
         if not path.is_file() or path.is_symlink(): continue

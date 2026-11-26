@@ -1,39 +1,38 @@
-# TaDa v0.1.1 — Android connection hotfix
+# TaDa v0.1.2 — notification delivery update
 
 **Release date:** 25 November 2026  
 **Status:** Preview / debug Android build
 
+## Added
+
+- A notification status panel reports worker health, browser push configuration, registered browsers, next reminder and the last push-service outcome.
+- A **Test server notification** button separates inbox scheduling from browser push delivery.
+- Native Android scheduled notifications, permission controls, precise-timing settings, sync count and a device test notification. This is local scheduling without Firebase credentials, not native server push.
+- A private diagnostic command, `npm run reminders:check`, for clock/database/key-presence checks. Push failures now produce sanitized status codes in server logs.
+
 ## Fixed
 
-The v0.1.0 debug APK displayed a local copy of the web login screen without a configured backend. Sign-in and registration requested the packaged `/api` path, received an HTML page and displayed “Unexpected token '<' … is not valid JSON”.
+- Browser permission is requested directly from the enable action, before waiting for server configuration.
+- Browser subscriptions with an outdated VAPID application key are replaced during enable.
+- Push test events can be delivered without a task ID.
+- Device schedules use stable IDs, synchronize edits/cancellations while open, avoid duplicate alarms and refresh on foregrounding.
 
-## Changed
+## Deploy
 
-- Android now starts with a native server setup screen. Enter an HTTPS origin and choose **Open TaDa**.
-- Setup checks the trusted HTTPS certificate and the TaDa JSON API before opening sign-in. Wrong addresses, HTML responses, network failures and TLS failures display connection guidance.
-- The server address is remembered on the device. Android Back from the root TaDa screen returns to server setup.
-- The web API client now handles HTML, malformed JSON and network errors without exposing raw parser errors or returned HTML.
-- App/package version is 0.1.1; Android versionCode is 2, application ID remains `app.tada.tasks`.
+**Update both the Pi server/web assets and the Android APK.** See `UPGRADE_v0.1.2.md` for an in-place Docker upgrade that preserves the existing Compose project/data volume and private `.env`. The public origin remains `https://tada-list.duckdns.org:8443`. Browser push keys must be configured on the Pi; keys from development were not shipped.
 
-## Installation
+The Android APK has application ID `app.tada.tasks`, versionName 0.1.2 and versionCode 3, and is debug signed. The original v0.1.0/v0.1.1 release files are retained unchanged. No local accounts, databases, uploads or private keys are included.
 
-Install `TaDa-v0.1.1-android-debug.apk` over the previous debug APK. It uses the same development signing key on this machine. Enter `https://tada-list.duckdns.org` once that server is reachable with a valid certificate.
+## Behavior and limits
 
-The new chooser works with the existing v0.1.0 email/password backend. No server/database migration is needed for this client fix. The ZIP also includes updated web source/assets for deployments that need the friendlier API error messages.
+Browser delivery still requires a supported browser, notification permission, a valid subscription, VAPID keys and an operating system that allows notification display. The UI's accepted status indicates provider acceptance, not guaranteed OS display.
 
-## Important limits
-
-This fixes the Android backend-selection problem. It does **not** fix the separate router/ISP connectivity and certificate problem for the Duck DNS hostname. The HTTPS address must work in the phone browser before the app can connect. HTTP origins and invalid certificates are rejected.
-
-This is a debug testing build, not a signed app-store release. Offline mode and native Android background push remain unimplemented. Accounts, uploads, local server data and private push keys are excluded from the package. The original v0.1.0 release files are retained unchanged.
+Android reminders need the v0.1.2 APK and server UI. Scheduled local alerts can fire after backgrounding; shared edits made elsewhere do not update a closed app. Open TaDa to refresh. Recurring schedules use a rolling 30-day horizon, plus the next occurrence outside it, capped at 256 alerts. Android permissions, exact-alarm access, force-stop, Doze and battery restrictions can affect delivery. Native background server/FCM push is not implemented.
 
 ## Validation
 
-- Production web build passed.
-- Five API/client/worker automated test cases passed, including HTML-response and network-failure handling.
-- Chromium regression checks passed for login error handling and the existing task/signup workflows.
-- Android debug compilation and two JVM unit tests passed for allowed/rejected server origins.
-- The package includes SHA-256 checksums and a per-file manifest, and is scanned for local account/password/push secrets.
-- No Android phone or emulator was connected; the native setup UI and successful end-to-end Android server login still require device testing.
-
-See README and QUICK_START for setup instructions and the earlier release's operational limits.
+- API/client/worker tests include real interval-driven reminder delivery to the inbox, status/test authorization and throttling, retry/expired-subscription behavior, local schedule planning and duplicate/cancellation handling.
+- Chromium browser checks cover the delivery-status panel, test inbox notification, phone layout and existing task/signup flows.
+- Android compilation and JVM URL-validator tests pass.
+- Release manifest/checksums and local-secret scan are verified during packaging.
+- Physical Android alarm delivery and actual browser push-provider delivery require testing on your device; no phone/emulator was connected here.

@@ -1,4 +1,4 @@
-# TaDa v0.1.1 — start here
+# TaDa v0.1.2 — start here
 
 ## Web application
 
@@ -28,7 +28,7 @@ Restart TaDa, open the notification bell, select Enable browser push and allow n
 
 ## Android preview
 
-Install `artifacts/TaDa-v0.1.1-android-debug.apk` as an update to the previous debug build. Open TaDa, enter your server’s HTTPS origin and tap **Open TaDa**. The app remembers the address and checks the server before opening sign-in. Use Android Back to return to server setup.
+Install `artifacts/TaDa-v0.1.2-android-debug.apk` as an update to the previous debug build. Open TaDa, enter your server’s HTTPS origin and tap **Open TaDa**. The app remembers the address and checks the server before opening sign-in. Use Android Back to return to server setup.
 
 The server URL must already work over HTTPS in the phone browser. For this installation it is `https://tada-list.duckdns.org`; that address will not work until its certificate and external connectivity are fixed. The chooser supports the existing v0.1.0 TaDa backend. Do not enter a localhost or plain HTTP LAN URL on the phone.
 
@@ -39,3 +39,7 @@ The APK is debug-signed and intended for testing, not app-store distribution. Na
 `release-manifest.json` contains SHA-256 hashes of all packaged payload files. `SHA256SUMS.txt` beside the download contains hashes for the release ZIP, APK and release notes.
 
 Run `npm test` for isolated API/worker tests. Read README for browser test commands and operational limits. Browser tests add temporary test accounts to whichever running server they target.
+
+## Notification delivery
+
+See `UPGRADE_v0.1.2.md` for browser push keys/permission and native Android reminder setup. Both updated server assets and APK are needed for Android reminder controls. No Firebase credentials are required for local device scheduling.
