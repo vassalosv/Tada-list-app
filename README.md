@@ -68,13 +68,13 @@ Push keys have been configured for this local installation, and the public-key/p
 
 The `android/` directory is a generated Capacitor 7 project. Android compilation was verified with JDK 21 and Android SDK 35. Capacitor packaging follows the official [Android workflow](https://capacitorjs.com/docs/android).
 
-The app needs a reachable **HTTPS** backend; it is not offline-first. The native launcher validates your server certificate and `/api/state` before opening the login page. Enter your origin (for this installation, `https://tada-list.duckdns.org:8443`) and choose **Open TaDa**. The device remembers it. Android Back from the root TaDa page returns to setup. HTTP and untrusted/self-signed TLS are rejected.
+The v1.0.0 Android app opens `https://tada-list.duckdns.org:8443` directly by default, or uses a previously saved custom server. There is no initial server chooser. Change it under **Account & profile → TaDa server**; switching clears this phone’s sessions and scheduled alerts. Only trusted HTTPS origins are accepted. No certificate validation is bypassed.
 
-Install the v0.2.0 debug APK (application ID `app.tada.tasks`, versionCode 4). A compatible signing key is required for an in-place update. Update the server/web UI too; see [UPGRADE_v0.2.0.md](UPGRADE_v0.2.0.md).
+Install the v1.0.0 debug APK (application ID `app.tada.tasks`, versionCode 5) using a compatible signing key, and update the server/web UI too. See [UPGRADE_v1.0.0.md](UPGRADE_v1.0.0.md). The app is not offline-first.
 
-Android alerts use native local alarms and a native authenticated background inbox worker, without browser push/VAPID keys. WorkManager checks approximately every 15 minutes and may be postponed by the OS. Open the app after shared reminder edits to refresh exact local alarm schedules. Notification and exact-alarm permission are controlled in Android settings. Real-time FCM push, offline sync, native audio recording and app-store publishing remain unimplemented.
+Android task alarms and the background inbox use native system notifications. Task alarms check current assignment, permission and event validity with the server before showing text; network failures can delay delivery. Native background inbox polling has a minimum 15-minute interval. Notification/exact-alarm permissions, Doze, force-stop, battery restrictions and session expiry affect delivery. Real-time FCM push is not implemented. The device-test button uses the independent local-notification plugin.
 
-To rebuild: `npm ci`, `npm run android:sync`, then `npx cap open android`. Android Studio/JDK 21 and SDK 35 are required. The native chooser uses the address selected on the device; a build-time TADA_SERVER_URL is not needed. Android compilation/JVM tests pass; physical-device setup and notification delivery still need testing.
+To rebuild: `npm ci`, `npm run android:sync`, then `npx cap open android`. Use JDK 21 and SDK 35. Android compilation/JVM tests pass; physical-device delivery, status bars and server switching need verification on actual phones.
 
 ## Validation
 
@@ -88,7 +88,7 @@ node tests/browser.mjs
 
 The API test uses three isolated accounts and a temporary database to verify session protection, view/edit permissions, unauthorized downloads, attachments, single-use invites, recurrence, reminders, CSRF origin rejection, validation and logout. Worker tests cover restart catch-up, deduplication, completed tasks, calendar month clamping, push retries and expired subscriptions. Browser checks create an account, create/edit tasks and subtasks, reload persisted state, navigate a 390px phone layout, schedule a reminder and complete a task, asserting no JavaScript errors or horizontal overflow. Browser tests intentionally add a test account to the running local server. Screenshots are saved in `screenshots/`.
 
-Verified: production web build, 11 automated test cases with many assertions, desktop/mobile Chromium flows, Android debug compilation. Not verified: real push delivery, Docker execution, physical Android device behavior or app-store release.
+Verified: production web build, 14 automated test cases with many assertions, desktop/mobile Chromium flows, Android debug compilation. Not verified: real push delivery, Docker execution, physical Android device behavior or app-store release.
 
 ## Operational limits
 
@@ -149,3 +149,10 @@ See [UPGRADE_v0.2.0.md](UPGRADE_v0.2.0.md) for upgrade, migration, permission an
 The v0.2.0 APK uses native Android alarms and authenticated WorkManager inbox checks, without browser push/VAPID keys. Background checks have a 15-minute minimum interval and may be delayed by Android; open the app after shared reminder edits to refresh exact alarm times. This is not real-time FCM delivery. Update both the APK and server UI.
 
 Run `node tests/v020-ui.mjs` for isolated UI checks across phone, foldable and desktop sizes. On Windows, `./scripts/android-icons.ps1` regenerates launcher assets and launch screens from `public/tada-icon.png`.
+
+
+## v1.0.0 — Compact home and collaboration
+
+Home combines the existing four dashboard cards with compact list rows. Lists have editable icons/colors and press-and-hold ordering. Share an entire Space with view/edit permissions, assign tasks to list participants (including yourself), and upload a private profile photo. Assigned reminders target the assignee. All themes support dark appearance; Android keeps system bars visible and opens the default server directly.
+
+Read [UPGRADE_v1.0.0.md](UPGRADE_v1.0.0.md) for the complete permission model, backup/upgrade steps and delivery limits. `node tests/v1-ui.mjs` checks five screen widths, including touch reorder and dark presets. Shared permissions are enforced through `effective_members` in `server/db.js`; `server/v1.js` adds Space sharing, list customization/order, protected avatars and native alarm eligibility.

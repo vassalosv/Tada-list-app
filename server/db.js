@@ -22,6 +22,17 @@ export const all = (q, ...p) => db.prepare(q).all(...p);
 export const get = (q, ...p) => db.prepare(q).get(...p);
 export const run = (q, ...p) => db.prepare(q).run(...p);
 export const id = () => randomUUID();
+db.exec(`CREATE TABLE IF NOT EXISTS space_members(space TEXT,user TEXT,role TEXT,PRIMARY KEY(space,user));
+CREATE TABLE IF NOT EXISTS space_lists(space TEXT,list TEXT UNIQUE,PRIMARY KEY(space,list));
+CREATE TABLE IF NOT EXISTS space_invites(token TEXT PRIMARY KEY,space TEXT,email TEXT,role TEXT,expires INTEGER);
+CREATE TABLE IF NOT EXISTS list_details(list TEXT PRIMARY KEY,icon TEXT NOT NULL DEFAULT 'list',color TEXT NOT NULL DEFAULT '#006644');
+CREATE TABLE IF NOT EXISTS list_order(user TEXT,space TEXT,list TEXT,position INTEGER,PRIMARY KEY(user,space,list));
+CREATE TABLE IF NOT EXISTS avatars(user TEXT PRIMARY KEY,mime TEXT,data BLOB,revision TEXT);
+CREATE VIEW IF NOT EXISTS effective_members AS
+SELECT list,user,CASE MAX(level) WHEN 3 THEN 'owner' WHEN 2 THEN 'edit' ELSE 'view' END AS role FROM (
+ SELECT list,user,CASE role WHEN 'owner' THEN 3 WHEN 'edit' THEN 2 ELSE 1 END AS level FROM members
+ UNION ALL SELECT sl.list,sm.user,CASE sm.role WHEN 'edit' THEN 2 ELSE 1 END FROM space_lists sl JOIN space_members sm ON sm.space=sl.space
+) GROUP BY list,user;`);
 // A workspace is personal organization. Sharing a list never shares the
 // owner's other workspace/list names or changes another member's placement.
 db.exec(`CREATE TABLE IF NOT EXISTS workspaces(id TEXT PRIMARY KEY,user TEXT NOT NULL,name TEXT NOT NULL);
@@ -54,6 +65,15 @@ try {
   db.exec("ROLLBACK");
   throw error;
 }
+// Only lists owned by a Space owner inherit that Space's sharing. Receiving
+// an individual list never grants permission to share it with third parties.
+run(
+  "INSERT OR IGNORE INTO space_lists SELECT lw.workspace,l.id FROM list_workspaces lw JOIN lists l ON l.id=lw.list JOIN workspaces w ON w.id=lw.workspace WHERE lw.user=w.user AND l.owner=w.user",
+);
+export function notificationRecipient(task, user) {
+  const data = typeof task.data === "string" ? JSON.parse(task.data) : task;
+  return !data.done && (!data.assignee || data.assignee === user);
+}
 import { nextDate } from "../shared/dates.js";
 export { nextDate };
 export const schedulerStatus = { lastRun: null, lastError: null };
@@ -63,7 +83,11 @@ export function tick(now = Date.now()) {
     const notify = (task, title) => {
       const t = get("SELECT * FROM tasks WHERE id=?", task);
       if (!t) return;
-      for (const m of all("SELECT user FROM members WHERE list=?", t.list)) {
+      for (const m of all(
+        "SELECT user FROM effective_members WHERE list=?",
+        t.list,
+      )) {
+        if (!notificationRecipient(t, m.user)) continue;
         let nid = id();
         run(
           "INSERT INTO notifications(id,user,task,title,created) VALUES(?,?,?,?,?)",

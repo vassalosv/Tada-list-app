@@ -13,6 +13,51 @@ import org.json.*;
 /** Native inbox delivery. Cookies remain in Android's private WebView store. */
 @CapacitorPlugin(name = "NativeAlerts")
 public class NativeAlertsPlugin extends Plugin {
+    @PluginMethod public void getAlarms(PluginCall call){try{JSObject value=new JSObject();value.put("notifications",TaskAlarms.pending(getContext()));call.resolve(value);}catch(Exception error){call.reject("Could not read task alarms");}}
+    @PluginMethod public void scheduleAlarms(PluginCall call){try{JSONArray items=call.getArray("notifications",new JSArray());for(int i=0;i<items.length();i++)TaskAlarms.schedule(getContext(),items.getJSONObject(i));call.resolve();}catch(Exception error){call.reject("Could not schedule task alarms");}}
+    @PluginMethod public void cancelAlarms(PluginCall call){try{JSONArray items=call.getArray("notifications",new JSArray());for(int i=0;i<items.length();i++)TaskAlarms.cancel(getContext(),items.getJSONObject(i).getInt("id"));call.resolve();}catch(Exception error){call.reject("Could not cancel task alarms");}}
+    @PluginMethod public void setAppearance(PluginCall call) {
+        getActivity().runOnUiThread(()->{
+            ((MainActivity)getActivity()).applyAppearance(call.getBoolean("dark",false),call.getString("background","#f4f8f6"));
+            call.resolve();
+        });
+    }
+    @PluginMethod public void setServer(PluginCall call) {
+        final String origin;
+        try {origin=ServerAddress.normalize(call.getString("origin",""));}
+        catch(Exception error){call.reject("Enter a valid HTTPS server address");return;}
+        TaskAlarms.IO.execute(()->{
+            javax.net.ssl.HttpsURLConnection check=null;
+            try {
+                check=(javax.net.ssl.HttpsURLConnection)new java.net.URL(origin+"/api/state").openConnection();
+                check.setConnectTimeout(8000);check.setReadTimeout(8000);check.setInstanceFollowRedirects(false);check.setRequestProperty("Accept","application/json");
+                if(check.getResponseCode()!=401)throw new java.io.IOException();
+                java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+                try(java.io.InputStream input=check.getErrorStream()){
+                    if(input==null)throw new java.io.IOException();
+                    byte[] buffer=new byte[1024];int count;
+                    while((count=input.read(buffer))!=-1){bytes.write(buffer,0,count);if(bytes.size()>65536)throw new java.io.IOException();}
+                }
+                if(!"Please sign in".equals(new JSONObject(bytes.toString("UTF-8")).optString("error")))throw new java.io.IOException();
+            } catch(Exception error){call.reject("The server could not be verified. Check its HTTPS address and availability. Your saved server has not changed.");return;}
+            finally {if(check!=null)check.disconnect();}
+            getActivity().runOnUiThread(()->{
+                synchronized(DELIVERY_LOCK){
+                    preferences(getContext()).edit().clear().commit();
+                    WorkManager.getInstance(getContext()).cancelUniqueWork(WORK);
+                    WorkManager.getInstance(getContext()).cancelUniqueWork(WORK+"-now");
+                    TaskAlarms.clear(getContext());
+                    androidx.core.app.NotificationManagerCompat.from(getContext()).cancelAll();
+                }
+                CookieManager.getInstance().removeAllCookies(removed->{
+                    CookieManager.getInstance().flush();
+                    getContext().getSharedPreferences("tada-server",Context.MODE_PRIVATE).edit().putString("origin",origin).commit();
+                    getActivity().startActivity(new android.content.Intent(getActivity(),MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK));
+                });
+                call.resolve();
+            });
+        });
+    }
     static final String WORK = "tada-native-inbox";
     static final Object DELIVERY_LOCK = new Object();
     static SharedPreferences preferences(Context context) {
@@ -70,6 +115,7 @@ public class NativeAlertsPlugin extends Plugin {
         // post private content after logout/account or server changes.
         synchronized (DELIVERY_LOCK) {
         preferences(getContext()).edit().clear().commit();
+        TaskAlarms.clear(getContext());
         WorkManager.getInstance(getContext()).cancelUniqueWork(WORK);
         WorkManager.getInstance(getContext()).cancelUniqueWork(WORK + "-now");
         androidx.core.app.NotificationManagerCompat.from(getContext()).cancelAll();

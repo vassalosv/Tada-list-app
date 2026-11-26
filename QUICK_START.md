@@ -43,3 +43,8 @@ Run `npm test` for isolated API/worker tests. Read README for browser test comma
 ## Notification delivery
 
 See `UPGRADE_v0.2.0.md` for Spaces, Android system notifications and upgrade steps; `UPGRADE_v0.1.2.md` covers browser push keys/permission. Both updated server assets and APK are needed for Android reminder controls. No Firebase credentials are required for local device scheduling.
+
+
+## v1.0.0
+
+See `UPGRADE_v1.0.0.md` before upgrading the server and APK. Android opens the default HTTPS server directly; change it from Account & profile. Task alerts check server-side assignment at delivery, so connectivity is needed. Home shows the four dashboard cards and compact, customizable list rows; share a Space from its Share Space button.

@@ -9,6 +9,27 @@ const backgroundReady = () =>
 export async function pollNativeAlerts() {
   if (backgroundReady()) await NativeAlerts.poll();
 }
+const taskAlarmPlugin = {
+  getPending: async () => {
+    try {
+      return await NativeAlerts.getAlarms();
+    } catch {
+      throw Error(
+        "Update the Android APK to v1.0.0 to enable assignment-aware task alarms",
+      );
+    }
+  },
+  cancel: (data) => NativeAlerts.cancelAlarms(data),
+  schedule: ({ notifications }) =>
+    NativeAlerts.scheduleAlarms({
+      notifications: notifications.map((n) => ({
+        ...n,
+        schedule: { ...n.schedule, at: new Date(n.schedule.at).getTime() },
+      })),
+    }),
+  checkExactNotificationSetting: () =>
+    LocalNotifications.checkExactNotificationSetting(),
+};
 const ready = () =>
   isNativeDevice() && Capacitor.isPluginAvailable("LocalNotifications");
 const key = (user) => "tada.deviceReminders." + user;
@@ -34,14 +55,16 @@ export async function syncDeviceState(
   origin = location.origin,
   force = false,
 ) {
-  const wanted = devicePlan(state.tasks);
+  const wanted = devicePlan(state.tasks, Date.now(), state.user.id);
   const pending = (await plugin.getPending()).notifications.filter(
     (n) => n.extra?.kind !== "test",
   );
   const byId = new Map(pending.map((n) => [n.id, n]));
   const ids = new Set(wanted.map((n) => n.id));
   const liveTasks = new Set(
-    state.tasks.filter((t) => !t.done).map((t) => t.id),
+    state.tasks
+      .filter((t) => !t.done && (!t.assignee || t.assignee === state.user.id))
+      .map((t) => t.id),
   );
   const stale = pending.filter((n) => {
     if (
@@ -84,6 +107,7 @@ export async function syncDeviceState(
         schedule: { at: new Date(n.at), allowWhileIdle: true },
         extra: {
           taskId: n.taskId,
+          eventKey: n.key,
           user: state.user.id,
           origin: origin,
         },
@@ -117,9 +141,17 @@ export function useDeviceReminders(state) {
       .then(async () => {
         if ((await LocalNotifications.checkPermissions()).display !== "granted")
           throw Error("Android notification permission is disabled");
+        if (localStorage.getItem("tada.nativeDeliveryVersion") !== "1") {
+          const old = await LocalNotifications.getPending();
+          if (old.notifications.length)
+            await LocalNotifications.cancel({
+              notifications: old.notifications.map((n) => ({ id: n.id })),
+            });
+          localStorage.setItem("tada.nativeDeliveryVersion", "1");
+        }
         const result = await syncDeviceState(
           state,
-          LocalNotifications,
+          taskAlarmPlugin,
           location.origin,
           needsReschedule,
         );
@@ -129,10 +161,12 @@ export function useDeviceReminders(state) {
             user: state.user.id,
             after: state.notificationCursor?.created || 0,
             afterId: state.notificationCursor?.id || "",
-            alarms: devicePlan(state.tasks).map(({ taskId, at }) => ({
-              taskId,
-              at,
-            })),
+            alarms: devicePlan(state.tasks, Date.now(), state.user.id).map(
+              ({ taskId, at }) => ({
+                taskId,
+                at,
+              }),
+            ),
           });
           await NativeAlerts.poll();
         }
@@ -167,7 +201,7 @@ export function useDeviceReminders(state) {
     enable: async () => {
       if (!ready())
         throw Error(
-          "Install the v0.2.0 Android app to enable Android notifications",
+          "Install the v1.0.0 Android app to enable Android notifications",
         );
       if ((await LocalNotifications.requestPermissions()).display !== "granted")
         throw Error("Allow TaDa notifications in Android settings");
@@ -189,7 +223,7 @@ export function useDeviceReminders(state) {
     },
     preciseSettings: () => LocalNotifications.changeExactNotificationSetting(),
     test: async () => {
-      if (!ready()) throw Error("Install the v0.2.0 Android app first");
+      if (!ready()) throw Error("Install the v1.0.0 Android app first");
       if ((await LocalNotifications.checkPermissions()).display !== "granted")
         throw Error("Enable device reminders first");
       await LocalNotifications.schedule({

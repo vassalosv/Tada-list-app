@@ -1,9 +1,9 @@
 import { nextDate } from "../shared/dates.js";
-export function devicePlan(tasks, now = Date.now()) {
+export function devicePlan(tasks, now = Date.now(), userId = null) {
   const events = [];
   const horizon = now + 30 * 86400000;
   for (const task of tasks) {
-    if (task.done) continue;
+    if (task.done || (task.assignee && task.assignee !== userId)) continue;
     for (const reminder of task.reminders || []) {
       let at = Number(reminder.at);
       if (!Number.isFinite(at)) at = Date.parse(reminder.at);

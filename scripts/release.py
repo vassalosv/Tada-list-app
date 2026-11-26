@@ -8,7 +8,9 @@ VERSION = json.loads((ROOT/'package.json').read_text(encoding='utf-8'))['version
 NAME = 'TaDa-v'+VERSION
 OUT = ROOT/'releases'/('v'+VERSION)
 OUT.mkdir(parents=True, exist_ok=True)
-ROOT_FILES = ['package.json','package-lock.json','index.html','vite.config.js','capacitor.config.ts','Dockerfile','compose.yaml','.env.example','.gitignore','.dockerignore','README.md','QUICK_START.md','RELEASE_NOTES.md','UPGRADE_v0.1.2.md','UPGRADE_v0.2.0.md']
+ROOT_FILES = ['package.json','package-lock.json','index.html','vite.config.js','capacitor.config.ts','Dockerfile','compose.yaml','.env.example','.gitignore','.dockerignore','README.md','QUICK_START.md','RELEASE_NOTES.md','UPGRADE_v0.1.2.md','UPGRADE_v0.2.0.md','UPGRADE_v1.0.0.md']
+version_notes='RELEASE_NOTES-v'+VERSION+'.md'
+if (ROOT/version_notes).exists(): ROOT_FILES.append(version_notes)
 PAYLOAD = {name:(ROOT/name).read_bytes() for name in ROOT_FILES}
 for directory in ['src','server','shared','public','scripts','tests','dist','android']:
     for path in sorted((ROOT/directory).rglob('*')):
@@ -57,7 +59,7 @@ for name,content in PAYLOAD.items():
     if name.endswith('.apk'):
         with zipfile.ZipFile(io.BytesIO(content)) as nested:
             for item in nested.infolist(): check_private(name+':'+item.filename,nested.read(item))
-manifest={'product':'TaDa','version':VERSION,'releaseDate':date.today().isoformat(),'androidVariant':'debug; HTTPS backend selected on device','files':{name:{'bytes':len(content),'sha256':hashlib.sha256(content).hexdigest()} for name,content in sorted(PAYLOAD.items())}}
+manifest={'product':'TaDa','version':VERSION,'releaseDate':date.today().isoformat(),'androidVariant':'debug; default HTTPS server with account setting override','files':{name:{'bytes':len(content),'sha256':hashlib.sha256(content).hexdigest()} for name,content in sorted(PAYLOAD.items())}}
 PAYLOAD['release-manifest.json']=(json.dumps(manifest,indent=2)+'\n').encode()
 archive=OUT/(NAME+'.zip')
 with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
@@ -69,7 +71,22 @@ with zipfile.ZipFile(archive) as z:
     assert z.testzip() is None
     for name,entry in manifest['files'].items(): assert hashlib.sha256(z.read(NAME+'/'+name)).hexdigest()==entry['sha256']
 (OUT/apk_name).write_bytes(PAYLOAD['artifacts/'+apk_name])
-notes=OUT/('RELEASE_NOTES-v'+VERSION+'.md');notes.write_bytes(PAYLOAD['RELEASE_NOTES.md'])
-artifacts=[archive,OUT/apk_name,notes]
+notes=OUT/version_notes;notes.write_bytes(PAYLOAD.get(version_notes,PAYLOAD['RELEASE_NOTES.md']))
+server_payload={name:content for name,content in PAYLOAD.items() if not name.startswith(('android/','artifacts/','tests/')) and name != 'release-manifest.json'}
+server_manifest={'product':'TaDa','version':VERSION,'package':'server','releaseDate':date.today().isoformat(),'files':{name:{'bytes':len(content),'sha256':hashlib.sha256(content).hexdigest()} for name,content in sorted(server_payload.items())}}
+server_payload['release-manifest.json']=(json.dumps(server_manifest,indent=2)+'\n').encode()
+server_archive=OUT/(NAME+'-server.zip')
+with zipfile.ZipFile(server_archive,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
+    for name,content in sorted(server_payload.items()):
+        check_private(name,content)
+        z.writestr(NAME+'/'+name,content)
+with zipfile.ZipFile(server_archive) as z:
+    assert z.testzip() is None
+    for name,entry in server_manifest['files'].items(): assert hashlib.sha256(z.read(NAME+'/'+name)).hexdigest()==entry['sha256']
+artifacts=[archive,server_archive,OUT/apk_name,notes]
+upgrade=ROOT/('UPGRADE_v'+VERSION+'.md')
+if upgrade.exists():
+    (OUT/upgrade.name).write_bytes(upgrade.read_bytes())
+    artifacts.append(OUT/upgrade.name)
 (OUT/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in artifacts),encoding='utf-8')
 print(json.dumps({'directory':str(OUT),'payloadFiles':len(PAYLOAD),'archiveBytes':archive.stat().st_size,'privateDataScan':'passed','manifestVerification':'passed'},indent=2))

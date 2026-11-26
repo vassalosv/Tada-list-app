@@ -1,5 +1,5 @@
 import * as webpush from "web-push";
-import { all, get, run } from "./db.js";
+import { all, get, run, notificationRecipient } from "./db.js";
 export const pushEnabled = !!(
   process.env.VAPID_PUBLIC_KEY &&
   process.env.VAPID_PRIVATE_KEY &&
@@ -34,8 +34,9 @@ export async function sendPush({
         !notification ||
         (notification.task &&
           (!task ||
+            !notificationRecipient(task, notification.user) ||
             !get(
-              "SELECT 1 FROM members WHERE list=? AND user=?",
+              "SELECT 1 FROM effective_members WHERE list=? AND user=?",
               task.list,
               notification.user,
             )))

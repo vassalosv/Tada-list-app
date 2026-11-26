@@ -4,6 +4,7 @@ import java.net.URI;
 
 /** Only trusted HTTPS origins are accepted; credentials are never sent over HTTP. */
 public final class ServerAddress {
+    public static final String DEFAULT_ORIGIN = "https://tada-list.duckdns.org:8443";
     private ServerAddress() {}
     public static String normalize(String input) {
         try {
