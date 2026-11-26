@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { systemAppearance } from "./native-settings.js";
 import { Palette, X, Check } from "lucide-react";
 import {
   Hct,
@@ -6,7 +7,12 @@ import {
   hexFromArgb,
   themeFromSourceColor,
 } from "@material/material-color-utilities";
-const defaults = { mode: "emerald", color: "#006644", dark: false };
+const defaults = {
+  mode: "emerald",
+  color: "#006644",
+  dark: false,
+  appearanceVersion: 1,
+};
 function readTheme() {
   try {
     const v = JSON.parse(localStorage.getItem("tada.theme"));
@@ -15,7 +21,11 @@ function readTheme() {
       ["emerald", "pastel", "dark", "material", "custom"].includes(v.mode) &&
       /^#[\da-f]{6}$/i.test(v.color)
     )
-      return v;
+      return {
+        ...v,
+        dark: v.mode === "dark" && !v.appearanceVersion ? true : !!v.dark,
+        appearanceVersion: 1,
+      };
   } catch {}
   return defaults;
 }
@@ -28,15 +38,13 @@ function schemeFor(t) {
           ? "#1a73e8"
           : t.color,
     ),
-  ).schemes[
-    t.mode === "dark" || (t.mode === "custom" && t.dark) ? "dark" : "light"
-  ];
+  ).schemes[!!t.dark ? "dark" : "light"];
 }
 function apply(t) {
   const root = document.documentElement;
   root.dataset.theme = t.mode;
-  root.style.colorScheme =
-    t.mode === "dark" || (t.mode === "custom" && t.dark) ? "dark" : "light";
+  root.dataset.appearance = t.dark ? "dark" : "light";
+  root.style.colorScheme = !!t.dark ? "dark" : "light";
   const s = schemeFor(t);
   const values = {
     bg: s.background,
@@ -53,7 +61,7 @@ function apply(t) {
   };
   for (const [k, v] of Object.entries(values))
     root.style.setProperty("--theme-" + k, hexFromArgb(v));
-  if (t.mode === "emerald") {
+  if (t.mode === "emerald" && !t.dark) {
     for (const [name, value] of Object.entries({
       bg: "#f4f8f6",
       surface: "#ffffff",
@@ -69,7 +77,11 @@ function apply(t) {
     }))
       root.style.setProperty("--theme-" + name, value);
   }
-  const isDark = t.mode === "dark" || (t.mode === "custom" && t.dark);
+  systemAppearance(
+    !!t.dark,
+    t.mode === "emerald" && !t.dark ? "#f4f8f6" : hexFromArgb(s.background),
+  );
+  const isDark = !!t.dark;
   const base = Hct.fromInt(argbFromHex(t.color)).hue;
   const hues =
     t.mode === "custom"
@@ -87,9 +99,9 @@ function apply(t) {
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute(
       "content",
-      t.mode === "emerald"
+      t.mode === "emerald" && !t.dark
         ? "#f4f8f6"
-        : t.mode === "pastel"
+        : t.mode === "pastel" && !t.dark
           ? "#f7f8fc"
           : hexFromArgb(s.background),
     );
@@ -174,7 +186,12 @@ export function ThemeButton() {
                   aria-pressed={draft.mode === mode}
                   className={"theme-option " + mode}
                   onClick={() => {
-                    setDraft({ ...draft, mode });
+                    setDraft({
+                      ...draft,
+                      mode,
+                      dark: mode === "dark" ? true : draft.dark,
+                      appearanceVersion: 1,
+                    });
                     setError("");
                   }}
                 >
@@ -240,22 +257,20 @@ export function ThemeButton() {
                     />
                   </label>
                 ))}
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={draft.dark}
-                    onChange={(e) =>
-                      setDraft({ ...draft, dark: e.target.checked })
-                    }
-                  />{" "}
-                  Dark appearance
-                </label>
                 <p className="hint">
                   Choose a source color. Matching surfaces and readable text
                   colors are generated automatically.
                 </p>
               </div>
             )}
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={draft.dark}
+                onChange={(e) => setDraft({ ...draft, dark: e.target.checked })}
+              />{" "}
+              Dark appearance
+            </label>
             <div
               className="theme-preview"
               style={{

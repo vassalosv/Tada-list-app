@@ -50,6 +50,11 @@ test("calendar recurrence clamps end of month and preserves UTC time", () => {
 test("push outbox retries failures and removes dead subscriptions", async () => {
   const { sendPush } = await import("../server/push.js");
   run(
+    "UPDATE tasks SET data=? WHERE id=?",
+    JSON.stringify({ title: "Active push test", done: false }),
+    "t",
+  );
+  run(
     "INSERT INTO subscriptions VALUES(?,?,?)",
     "https://fcm.googleapis.com/test",
     "u",
@@ -70,6 +75,48 @@ test("push outbox retries failures and removes dead subscriptions", async () => 
     },
   });
   assert.equal(all("SELECT * FROM subscriptions").length, 0);
+  assert.equal(all("SELECT * FROM push_jobs").length, 0);
+});
+test("queued browser push is delivered only to the current assignee", async () => {
+  const { sendPush } = await import("../server/push.js");
+  run("INSERT INTO members VALUES(?,?,?)", "l", "assignee", "edit");
+  run(
+    "INSERT INTO tasks VALUES(?,?,?)",
+    "assigned-task",
+    "l",
+    JSON.stringify({
+      title: "Assigned task",
+      done: false,
+      assignee: "assignee",
+    }),
+  );
+  for (const user of ["u", "assignee"]) {
+    const nid = id();
+    run(
+      "INSERT INTO notifications(id,user,task,title,created) VALUES(?,?,?,?,?)",
+      nid,
+      user,
+      "assigned-task",
+      "Reminder: Assigned task",
+      Date.now(),
+    );
+    run("INSERT INTO push_jobs(id,notification) VALUES(?,?)", id(), nid);
+    const endpoint = "https://push.example.com/" + user;
+    run(
+      "INSERT INTO subscriptions VALUES(?,?,?)",
+      endpoint,
+      user,
+      JSON.stringify({ endpoint }),
+    );
+  }
+  const delivered = [];
+  await sendPush({
+    enabled: true,
+    send: async (subscription) => {
+      delivered.push(subscription.endpoint);
+    },
+  });
+  assert.deepEqual(delivered, ["https://push.example.com/assignee"]);
   assert.equal(all("SELECT * FROM push_jobs").length, 0);
 });
 process.on("exit", () => {

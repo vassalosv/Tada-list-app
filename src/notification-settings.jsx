@@ -11,7 +11,7 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
       setStatus(await api("/notifications/status"));
     } catch {
       setError(
-        "Update the Pi server to v0.1.2 to see notification delivery status.",
+        "Update the Pi server to v1.0.0 to see notification delivery status.",
       );
     }
   }
@@ -162,7 +162,7 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
         <>
           <p className="hint">
             {!device.available
-              ? "This APK needs updating to v0.2.0."
+              ? "This APK needs updating to v1.0.0."
               : device.enabled
                 ? `${device.count} alerts synced to this phone. ${device.precise ? "Precise timing is allowed." : "Android may delay alerts; allow Alarms & reminders for precise timing."}`
                 : "Allow TaDa notifications to see reminders in Android’s notification shade."}
@@ -177,10 +177,12 @@ export function NotificationSettings({ device, enableBrowser, refresh }) {
           )}
           <p className="hint">
             Reminders use Android alarms (up to 256 scheduled alerts). Open TaDa
-            after shared tasks change to refresh precise times.
+            after shared tasks change to refresh precise times. Task alarms
+            check current assignment with the server before display; offline
+            delivery can be delayed.
             {device.background
               ? " Native background checks also deliver new server alerts, approximately every 15 minutes; Android battery settings can delay them. No browser push or VAPID keys are needed for this APK."
-              : " Install the v0.2.0 APK for native background checks."}
+              : " Install the v1.0.0 APK for native background checks."}
           </p>
         </>
       )}

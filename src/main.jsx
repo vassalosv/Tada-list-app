@@ -29,9 +29,16 @@ import {
   Menu,
 } from "lucide-react";
 import "./style.css";
-import { ListsHome, WorkspaceSettings } from "./workspaces.jsx";
+import { WorkspaceSettings } from "./workspaces.jsx";
 import { isNativeDevice } from "./device-reminders.js";
 import { ThemeButton } from "./themes.jsx";
+import {
+  CompactLists,
+  ListEditor,
+  ListIcon,
+  Avatar,
+  ShareSpace,
+} from "./lists.jsx";
 import { Profile } from "./profile.jsx";
 import {
   useDeviceReminders,
@@ -67,6 +74,7 @@ const blank = (list) => ({
   priority: 0,
   due: null,
   repeat: "none",
+  assignee: null,
   files: [],
   reminders: [],
 });
@@ -74,11 +82,7 @@ function App() {
   const [state, setState] = useState(null),
     [auth, setAuth] = useState("login"),
     [error, setError] = useState(""),
-    [view, setView] = useState(() =>
-      isNativeDevice() || matchMedia("(max-width: 1000px)").matches
-        ? "Lists"
-        : "Today",
-    ),
+    [view, setView] = useState("Home"),
     [workspaceId, setWorkspaceId] = useState(null),
     [query, setQuery] = useState(""),
     [sort, setSort] = useState("date"),
@@ -94,12 +98,21 @@ function App() {
   useEffect(() => {
     if (
       state &&
-      !["Lists", "Today", "Scheduled", "All", "Overdue", "Starred"].includes(
-        view,
-      ) &&
-      !state.lists.some((l) => l.id === view && l.workspace === workspaceId)
+      ![
+        "Home",
+        "Today",
+        "Scheduled",
+        "All",
+        "Overdue",
+        "Starred",
+        "Assigned",
+      ].includes(view) &&
+      !state.lists.some(
+        (l) =>
+          l.id === view && (l.spaces || [l.workspace]).includes(workspaceId),
+      )
     )
-      setView("Lists");
+      setView("Home");
   }, [state, view, workspaceId]);
   function signedOut() {
     setState(null);
@@ -109,7 +122,7 @@ function App() {
     setSidebar(false);
     setView(
       isNativeDevice() || matchMedia("(max-width: 1000px)").matches
-        ? "Lists"
+        ? "Home"
         : "Today",
     );
   }
@@ -120,7 +133,7 @@ function App() {
   }, [workspaceId, state?.user?.id]);
   function switchWorkspace(id) {
     setWorkspaceId(id);
-    setView("Lists");
+    setView("Home");
     setQuery("");
     setEdit(null);
     setModal(null);
@@ -188,13 +201,28 @@ function App() {
     }
   }
   useEffect(() => {
-    if (state && new URLSearchParams(location.search).has("invite")) {
-      let token = new URLSearchParams(location.search).get("invite");
+    if (
+      state &&
+      (new URLSearchParams(location.search).has("invite") ||
+        new URLSearchParams(location.search).has("spaceInvite"))
+    ) {
+      const isSpace = new URLSearchParams(location.search).has("spaceInvite");
+      let token = new URLSearchParams(location.search).get(
+        isSpace ? "spaceInvite" : "invite",
+      );
       history.replaceState({}, "", "/");
       act(async () => {
-        await api("/invites/accept", { token });
+        const result = await api(
+          isSpace ? "/space-invites/accept" : "/invites/accept",
+          { token },
+        );
+        if (isSpace) switchWorkspace(result.id);
         await load();
-        setToast("You joined the shared list");
+        setToast(
+          isSpace
+            ? "You joined the shared Space"
+            : "You joined the shared list",
+        );
       });
     }
   }, [!!state]);
@@ -396,7 +424,14 @@ function App() {
   const workspaces = state.workspaces || [];
   const workspace =
     workspaces.find((w) => w.id === workspaceId) || workspaces[0];
-  const lists = state.lists.filter((l) => l.workspace === workspace?.id);
+  const lists = state.lists.filter((l) =>
+    (l.spaces || [l.workspace]).includes(workspace?.id),
+  );
+  lists.sort(
+    (a, b) =>
+      (a.order?.find((o) => o.space === workspace?.id)?.position ?? 100000) -
+      (b.order?.find((o) => o.space === workspace?.id)?.position ?? 100000),
+  );
   const listIds = new Set(lists.map((l) => l.id));
   const tasks = state.tasks.filter((t) => listIds.has(t.list));
   let today = new Date().toLocaleDateString();
@@ -406,6 +441,7 @@ function App() {
     All: (t) => true,
     Overdue: (t) => t.due && Date.parse(t.due) < Date.now(),
     Starred: (t) => t.star,
+    Assigned: (t) => t.assignee === user.id,
   };
   let selectedList = lists.find((l) => l.id === view);
   function newTask() {
@@ -413,6 +449,7 @@ function App() {
       (selectedList?.role !== "view" ? selectedList : null) ||
       lists.find((l) => l.role !== "view");
     if (list) setEdit(blank(list.id));
+    else if (workspace?.role === "view") setToast("This Space is view-only");
     else setModal({ type: "list" });
   }
   let visible = tasks
@@ -479,8 +516,8 @@ function App() {
           </button>
         </div>
         <button
-          className={view === "Lists" ? "nav active" : "nav"}
-          onClick={() => nav("Lists")}
+          className={view === "Home" ? "nav active" : "nav"}
+          onClick={() => nav("Home")}
         >
           <Layers size={19} /> My lists <span>{lists.length}</span>
         </button>
@@ -519,7 +556,7 @@ function App() {
             className={view === l.id ? "nav active" : "nav"}
             onClick={() => nav(l.id)}
           >
-            <span className={"dot " + l.color} />
+            <ListIcon list={l} size={19} />
             {l.name}
             {l.role !== "owner" && <Users size={14} />}
             <span>
@@ -543,7 +580,7 @@ function App() {
             </p>
           </div>
           <div className="profile">
-            <span className="avatar">{user.name[0]}</span>
+            <Avatar user={user} />
             <div>
               {user.name}
               <small>{workspace?.name}</small>
@@ -611,39 +648,28 @@ function App() {
               aria-haspopup="dialog"
               onClick={() => setModal({ type: "profile" })}
             >
-              <span className="avatar small">{user.name[0]}</span>
+              <Avatar user={user} small />
             </button>
           </div>
         </header>
-        <div className={"content" + (view === "Lists" ? " lists-first" : "")}>
-          {view === "Lists" && (
-            <ListsHome
-              workspace={workspace}
-              lists={lists}
-              tasks={tasks}
-              open={nav}
-              create={() => setModal({ type: "list" })}
-              device={device}
-              action={act}
-            />
-          )}
-          {view !== "Lists" && compact && (
-            <nav className="quick-lists" aria-label="Quick list access">
-              <button className="outline" onClick={() => nav("Lists")}>
-                <Layers size={16} /> All lists
+        <div className={"content" + (view === "Home" ? " home-view" : "")}>
+          {view === "Home" && (
+            <div className="home-identity">
+              <button
+                className="identity-profile"
+                onClick={() => setModal({ type: "profile" })}
+              >
+                <Avatar user={user} />
+                <span>
+                  <strong>{user.name}</strong>
+                  <small>{user.email}</small>
+                </span>
               </button>
-              {lists.map((l) => (
-                <button
-                  key={l.id}
-                  className={view === l.id ? "outline selected" : "outline"}
-                  onClick={() => nav(l.id)}
-                >
-                  {l.name}
-                </button>
-              ))}
-            </nav>
+              <button className="outline" onClick={() => nav("Assigned")}>
+                <Users size={17} /> Assigned to me
+              </button>
+            </div>
           )}
-
           <div className="greeting">
             <div>
               <span className="eyebrow">A FRESH START, EVERY DAY</span>
@@ -689,6 +715,22 @@ function App() {
               </button>
             ))}
           </div>
+          <CompactLists
+            key={workspace?.id}
+            workspace={workspace}
+            lists={lists}
+            tasks={tasks}
+            open={nav}
+            create={() => setModal({ type: "list" })}
+            edit={(list) => setModal({ type: "list", list })}
+            reorder={(ids) =>
+              act(async () => {
+                await api(`/workspaces/${workspace.id}/order`, { ids }, "PUT");
+                await load();
+              })
+            }
+            share={() => setModal({ type: "shareSpace" })}
+          />
           <div className="body-grid">
             <section className="task-section">
               <div className="section-heading">
@@ -698,6 +740,7 @@ function App() {
                       {
                         Today: "Today’s tasks",
                         All: "All your tasks",
+                        Assigned: "Assigned to me",
                         Starred: "The important things",
                         Scheduled: "On the horizon",
                         Overdue: "Let’s catch up",
@@ -710,7 +753,17 @@ function App() {
                       : "Make room for what matters."}
                   </p>
                 </div>
-                {selectedList && (
+                {selectedList && selectedList.role !== "view" && (
+                  <button
+                    className="outline"
+                    onClick={() =>
+                      setModal({ type: "list", list: selectedList })
+                    }
+                  >
+                    Edit list
+                  </button>
+                )}
+                {selectedList && workspace?.role === "owner" && (
                   <label className="move-list">
                     Space
                     <select
@@ -811,10 +864,12 @@ function App() {
                       </span>
                       <span className="task-meta">
                         <span
-                          className={
-                            "mini-dot " +
-                            lists.find((l) => l.id === t.list)?.color
-                          }
+                          className="mini-dot"
+                          style={{
+                            background:
+                              lists.find((l) => l.id === t.list)?.accent ||
+                              "#006644",
+                          }}
                         />
                         {lists.find((l) => l.id === t.list)?.name}
                         <span
@@ -831,6 +886,15 @@ function App() {
                             <Check size={12} />
                             {t.subtasks.filter((s) => s.done).length}/
                             {t.subtasks.length}
+                          </span>
+                        )}
+                        {t.assignee && (
+                          <span>
+                            <Users size={12} />
+                            {state.lists
+                              .find((l) => l.id === t.list)
+                              ?.participants?.find((p) => p.id === t.assignee)
+                              ?.name || "Unavailable assignee"}
                           </span>
                         )}
                         {t.files.length > 0 && <Paperclip size={12} />}
@@ -890,63 +954,23 @@ function App() {
                 at your own pace.
               </div>
             </section>
-            <aside className="right-rail">
-              <div className="section-heading">
-                <h2>Your lists</h2>
-                <button
-                  aria-label="New list"
-                  onClick={() => setModal({ type: "list" })}
-                >
-                  <Plus size={18} />
-                </button>
-              </div>
-              <div className="list-cards">
-                {lists.map((l) => (
-                  <button
-                    key={l.id}
-                    className={"list-card " + l.color}
-                    onClick={() => nav(l.id)}
-                  >
-                    <div>
-                      <span className="list-symbol">
-                        {l.color === "mint"
-                          ? "✿"
-                          : l.color === "yellow"
-                            ? "⌂"
-                            : "✧"}
-                      </span>
-                      <span className="pill">
-                        {tasks.filter((t) => t.list === l.id && t.done).length}{" "}
-                        done
-                      </span>
-                    </div>
-                    <h3>{l.name}</h3>
-                    <div>
-                      <span>
-                        {tasks.filter((t) => t.list === l.id && !t.done).length}{" "}
-                        tasks
-                      </span>
-                      <ArrowUpRight size={20} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="quote">
-                <span>✦</span>
-                <p>
-                  You don’t have to do it all.
-                  <br />
-                  Just the next little thing.
-                </p>
-                <small>MAKE TODAY YOURS</small>
-              </div>
-            </aside>
           </div>
           <footer>
             Less on your mind. More in your day. <Flower2 size={14} />
           </footer>
         </div>
       </main>
+      {!edit && !modal && (
+        <button
+          type="button"
+          className="task-fab"
+          aria-label="Add task"
+          onClick={newTask}
+        >
+          <Plus size={25} />
+          <span>Add task</span>
+        </button>
+      )}
       {error && (
         <div className="error-toast" role="alert">
           {error}
@@ -991,13 +1015,44 @@ function App() {
                 value={edit.title}
                 onChange={(e) => setEdit({ ...edit, title: e.target.value })}
               />
+              <label>
+                Assign to
+                <select
+                  aria-label="Assign to"
+                  value={edit.assignee || ""}
+                  onChange={(e) =>
+                    setEdit({ ...edit, assignee: e.target.value || null })
+                  }
+                >
+                  <option value="">Unassigned (notify list members)</option>
+                  {edit.assignee &&
+                    !state.lists
+                      .find((l) => l.id === edit.list)
+                      ?.participants?.some((p) => p.id === edit.assignee) && (
+                      <option value={edit.assignee} disabled>
+                        Former member — choose a new assignee
+                      </option>
+                    )}
+
+                  {state.lists
+                    .find((l) => l.id === edit.list)
+                    ?.participants?.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name}
+                        {person.id === user.id ? " (me)" : ""}
+                      </option>
+                    ))}
+                </select>
+              </label>
               <div className="detail-controls">
                 <label>
                   List
                   <select
                     value={edit.list}
                     disabled={!!edit.id}
-                    onChange={(e) => setEdit({ ...edit, list: e.target.value })}
+                    onChange={(e) =>
+                      setEdit({ ...edit, list: e.target.value, assignee: null })
+                    }
                   >
                     {lists
                       .filter((l) => l.role !== "view" || l.id === edit.list)
@@ -1302,6 +1357,7 @@ function App() {
               <Profile
                 user={user}
                 changePassword={(body) => api("/profile/password", body)}
+                refresh={load}
               />
             )}
             {modal.type === "workspace" && workspace && (
@@ -1317,47 +1373,24 @@ function App() {
                 }}
               />
             )}
+            {modal.type === "shareSpace" && (
+              <ShareSpace workspace={workspace} api={api} refresh={load} />
+            )}
             {modal.type === "list" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  let b = Object.fromEntries(new FormData(e.currentTarget));
+              <ListEditor
+                list={modal.list}
+                busy={busy}
+                save={(body) =>
                   act(async () => {
-                    let l = await api("/lists", {
-                      ...b,
-                      workspace: workspace?.id,
-                    });
+                    if (modal.list)
+                      await api(`/lists/${modal.list.id}`, body, "PATCH");
+                    else
+                      await api("/lists", { ...body, workspace: workspace.id });
                     await load();
-                    setView(l.id);
                     setModal(null);
-                  });
-                }}
-              >
-                <span className="eyebrow">MAKE SOME ROOM</span>
-                <h2>A home for your plans.</h2>
-                <label>
-                  List name
-                  <input
-                    name="name"
-                    required
-                    maxLength={100}
-                    placeholder="Weekend adventures"
-                    autoFocus
-                  />
-                </label>
-                <label>
-                  Theme
-                  <select name="color">
-                    <option value="mint">Mint</option>
-                    <option value="lavender">Lavender</option>
-                    <option value="yellow">Sunshine</option>
-                    <option value="pink">Blossom</option>
-                  </select>
-                </label>
-                <button className="primary" disabled={busy}>
-                  Create list <Plus size={17} />
-                </button>
-              </form>
+                  })
+                }
+              />
             )}
             {modal.type === "share" && (
               <>
@@ -1368,28 +1401,31 @@ function App() {
                   <div className="attachment" key={m.id}>
                     <span>
                       {m.name} · {m.role}
+                      {m.inherited ? " · via Space" : ""}
                     </span>
-                    {modal.list.role === "owner" && m.role !== "owner" && (
-                      <button
-                        onClick={() =>
-                          act(async () => {
-                            await api(
-                              `/lists/${modal.list.id}/members/${m.id}`,
-                              {},
-                              "DELETE",
-                            );
-                            setModal({
-                              ...modal,
-                              members: modal.members.filter(
-                                (x) => x.id !== m.id,
-                              ),
-                            });
-                          })
-                        }
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
+                    {modal.list.role === "owner" &&
+                      m.role !== "owner" &&
+                      !m.inherited && (
+                        <button
+                          onClick={() =>
+                            act(async () => {
+                              await api(
+                                `/lists/${modal.list.id}/members/${m.id}`,
+                                {},
+                                "DELETE",
+                              );
+                              setModal({
+                                ...modal,
+                                members: modal.members.filter(
+                                  (x) => x.id !== m.id,
+                                ),
+                              });
+                            })
+                          }
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
                   </div>
                 ))}
                 {modal.list.role === "owner" && (

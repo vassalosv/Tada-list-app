@@ -87,7 +87,8 @@ export function WorkspaceSettings({
   const [name, setName] = useState(""),
     [renamed, setRenamed] = useState(active.name),
     [destination, setDestination] = useState(
-      workspaces.find((w) => w.id !== active.id)?.id || "",
+      workspaces.find((w) => w.id !== active.id && w.role === "owner")?.id ||
+        "",
     ),
     [confirm, setConfirm] = useState(false);
   return (
@@ -124,74 +125,77 @@ export function WorkspaceSettings({
           Create space
         </button>
       </form>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          action(async () => {
-            await api("/workspaces/" + active.id, { name: renamed }, "PATCH");
-            await changed(active.id);
-          });
-        }}
-      >
-        <h3>Rename {active.name}</h3>
-        <label>
-          New space name
-          <input
-            required
-            maxLength={60}
-            value={renamed}
-            onChange={(e) => setRenamed(e.target.value)}
-          />
-        </label>
-        <button className="outline" disabled={busy}>
-          Save name
-        </button>
-      </form>
-      {workspaces.length > 1 && (
-        <div className="workspace-delete">
-          <h3>Remove space</h3>
-          <p>Your lists and tasks will move to another space.</p>
+      {active.role === "owner" && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            action(async () => {
+              await api("/workspaces/" + active.id, { name: renamed }, "PATCH");
+              await changed(active.id);
+            });
+          }}
+        >
+          <h3>Rename {active.name}</h3>
           <label>
-            Move lists to
-            <select
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-            >
-              {workspaces
-                .filter((w) => w.id !== active.id)
-                .map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="confirm-workspace">
+            New space name
             <input
-              type="checkbox"
-              checked={confirm}
-              onChange={(e) => setConfirm(e.target.checked)}
-            />{" "}
-            Remove “{active.name}” and move its lists
+              required
+              maxLength={60}
+              value={renamed}
+              onChange={(e) => setRenamed(e.target.value)}
+            />
           </label>
-          <button
-            className="danger"
-            disabled={busy || !confirm}
-            onClick={() =>
-              action(async () => {
-                await api(
-                  "/workspaces/" + active.id,
-                  { destination },
-                  "DELETE",
-                );
-                await changed(destination);
-              })
-            }
-          >
-            Remove space
+          <button className="outline" disabled={busy}>
+            Save name
           </button>
-        </div>
+        </form>
       )}
+      {active.role === "owner" &&
+        workspaces.filter((w) => w.role === "owner").length > 1 && (
+          <div className="workspace-delete">
+            <h3>Remove space</h3>
+            <p>Your lists and tasks will move to another space.</p>
+            <label>
+              Move lists to
+              <select
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+              >
+                {workspaces
+                  .filter((w) => w.id !== active.id)
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="confirm-workspace">
+              <input
+                type="checkbox"
+                checked={confirm}
+                onChange={(e) => setConfirm(e.target.checked)}
+              />{" "}
+              Remove “{active.name}” and move its lists
+            </label>
+            <button
+              className="danger"
+              disabled={busy || !confirm}
+              onClick={() =>
+                action(async () => {
+                  await api(
+                    "/workspaces/" + active.id,
+                    { destination },
+                    "DELETE",
+                  );
+                  await changed(destination);
+                })
+              }
+            >
+              Remove space
+            </button>
+          </div>
+        )}
     </section>
   );
 }

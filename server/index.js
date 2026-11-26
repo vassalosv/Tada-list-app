@@ -22,6 +22,12 @@ import {
   schedulerStatus,
   defaultWorkspace,
 } from "./db.js";
+import {
+  installV1,
+  spaceAccess,
+  listAppearance,
+  validateAssignee,
+} from "./v1.js";
 import { pushEnabled, sendPush } from "./push.js";
 const app = express();
 const origin =
@@ -114,6 +120,7 @@ function seed(user) {
     run("INSERT INTO lists VALUES(?,?,?,?)", list, user, name, color);
     run("INSERT INTO members VALUES(?,?,?)", list, user, "owner");
     run("INSERT INTO list_workspaces VALUES(?,?,?)", user, list, workspace);
+    run("INSERT INTO space_lists VALUES(?,?)", workspace, list);
     if (name === "Personal") {
       for (const [title, h, star] of [
         ["Make a little room for yourself", 2, true],
@@ -204,7 +211,11 @@ app.use("/api", (req, res, next) => {
   next();
 });
 function access(user, list, write = false, owner = false) {
-  let m = get("SELECT role FROM members WHERE list=? AND user=?", list, user);
+  let m = get(
+    "SELECT role FROM effective_members WHERE list=? AND user=?",
+    list,
+    user,
+  );
   if (!m || (write && m.role === "view") || (owner && m.role !== "owner"))
     fail(403, "You do not have permission");
   return m.role;
@@ -215,6 +226,7 @@ function task(req, write = false) {
   access(req.user, t.list, write);
   return t;
 }
+installV1(app, { access, fail, wrap, origin, allowedOrigins });
 app.post(
   "/api/profile/password",
   wrap((req, res) => {
@@ -282,13 +294,46 @@ app.post("/api/logout", (req, res) => {
 });
 app.get("/api/state", (req, res) => {
   let lists = all(
-    "SELECT l.*,m.role,w.workspace FROM lists l JOIN members m ON m.list=l.id LEFT JOIN list_workspaces w ON w.list=l.id AND w.user=m.user WHERE m.user=?",
+    "SELECT l.*,m.role,w.workspace FROM lists l JOIN effective_members m ON m.list=l.id LEFT JOIN list_workspaces w ON w.list=l.id AND w.user=m.user WHERE m.user=?",
     req.user,
   );
+  lists = lists.map((l) => ({
+    ...l,
+    ...get("SELECT icon,color AS accent FROM list_details WHERE list=?", l.id),
+    spaces: [
+      ...new Set(
+        [
+          l.workspace,
+          ...all(
+            "SELECT sl.space FROM space_lists sl JOIN space_members sm ON sm.space=sl.space WHERE sl.list=? AND sm.user=?",
+            l.id,
+            req.user,
+          ).map((x) => x.space),
+        ].filter(Boolean),
+      ),
+    ],
+    participants: all(
+      "SELECT u.id,u.name,a.revision AS avatar FROM effective_members m JOIN users u ON u.id=m.user LEFT JOIN avatars a ON a.user=u.id WHERE m.list=?",
+      l.id,
+    ),
+    order: all(
+      "SELECT space,position FROM list_order WHERE user=? AND list=?",
+      req.user,
+      l.id,
+    ),
+  }));
   res.json({
-    user: get("SELECT id,name,email FROM users WHERE id=?", req.user),
+    user: {
+      ...get("SELECT id,name,email FROM users WHERE id=?", req.user),
+      avatar:
+        get("SELECT revision FROM avatars WHERE user=?", req.user)?.revision ||
+        null,
+    },
     workspaces: all(
-      "SELECT id,name FROM workspaces WHERE user=? ORDER BY rowid",
+      "SELECT w.id,w.name,CASE WHEN w.user=? THEN 'owner' ELSE sm.role END AS role,w.user AS owner,(SELECT COUNT(*) FROM space_members x WHERE x.space=w.id) AS memberCount FROM workspaces w LEFT JOIN space_members sm ON sm.space=w.id AND sm.user=? WHERE w.user=? OR sm.user=? ORDER BY w.rowid",
+      req.user,
+      req.user,
+      req.user,
       req.user,
     ),
     notificationCursor: get(
@@ -297,7 +342,7 @@ app.get("/api/state", (req, res) => {
     ) || { created: 0, id: "" },
     lists,
     tasks: all(
-      "SELECT t.* FROM tasks t JOIN members m ON m.list=t.list WHERE m.user=?",
+      "SELECT t.* FROM tasks t JOIN effective_members m ON m.list=t.list WHERE m.user=?",
       req.user,
     ).map((t) => ({
       ...JSON.parse(t.data),
@@ -328,7 +373,11 @@ app.post(
   wrap((req, res) => {
     const name = workspaceName(req.body.name);
     if (
-      get("SELECT COUNT(*) AS n FROM workspaces WHERE user=?", req.user).n >= 20
+      get(
+        "SELECT (SELECT COUNT(*) FROM workspaces WHERE user=?)+(SELECT COUNT(*) FROM space_members WHERE user=?) AS n",
+        req.user,
+        req.user,
+      ).n >= 20
     )
       fail(400, "You can have up to 20 spaces");
     const workspace = id();
@@ -369,6 +418,13 @@ app.delete(
         req.params.id,
       );
       run(
+        "UPDATE space_lists SET space=? WHERE space=?",
+        destination,
+        req.params.id,
+      );
+      run("DELETE FROM space_members WHERE space=?", req.params.id);
+      run("DELETE FROM space_invites WHERE space=?", req.params.id);
+      run(
         "DELETE FROM workspaces WHERE id=? AND user=?",
         req.params.id,
         req.user,
@@ -386,6 +442,15 @@ app.put(
   wrap((req, res) => {
     access(req.user, req.params.id);
     workspaceAccess(req.user, req.body.workspace);
+    if (
+      get("SELECT owner FROM lists WHERE id=?", req.params.id)?.owner ===
+      req.user
+    )
+      run(
+        "INSERT INTO space_lists VALUES(?,?) ON CONFLICT(list) DO UPDATE SET space=excluded.space",
+        req.body.workspace,
+        req.params.id,
+      );
     run(
       "INSERT INTO list_workspaces VALUES(?,?,?) ON CONFLICT(user,list) DO UPDATE SET workspace=excluded.workspace",
       req.user,
@@ -407,7 +472,7 @@ app.get(
     res.json({
       user: req.user,
       notifications: all(
-        "SELECT n.id,n.title,n.task,n.created FROM notifications n WHERE n.user=? AND (n.created>? OR (n.created=? AND n.id>?)) AND (n.task IS NULL OR EXISTS(SELECT 1 FROM tasks t JOIN members m ON m.list=t.list WHERE t.id=n.task AND m.user=n.user)) ORDER BY n.created,n.id LIMIT 100",
+        "SELECT n.id,n.title,n.task,n.created FROM notifications n WHERE n.user=? AND (n.created>? OR (n.created=? AND n.id>?)) AND (n.task IS NULL OR EXISTS(SELECT 1 FROM tasks t JOIN effective_members m ON m.list=t.list WHERE t.id=n.task AND m.user=n.user AND COALESCE(json_extract(t.data,'$.done'),0)=0 AND (json_extract(t.data,'$.assignee') IS NULL OR json_extract(t.data,'$.assignee')=n.user))) ORDER BY n.created,n.id LIMIT 100",
         req.user,
         after,
         after,
@@ -422,19 +487,28 @@ app.post(
     let name = String(req.body.name || "").trim();
     if (!name || name.length > 100) fail(400, "Enter a list name");
     const workspace = req.body.workspace || defaultWorkspace(req.user);
-    workspaceAccess(req.user, workspace);
+    spaceAccess(req.user, workspace, true);
+    const listOwner = get(
+      "SELECT user FROM workspaces WHERE id=?",
+      workspace,
+    ).user;
     let list = id();
+    run("INSERT INTO lists VALUES(?,?,?,?)", list, listOwner, name, "mint");
+    run("INSERT INTO members VALUES(?,?,?)", list, listOwner, "owner");
     run(
-      "INSERT INTO lists VALUES(?,?,?,?)",
+      "INSERT INTO list_workspaces VALUES(?,?,?)",
+      listOwner,
       list,
-      req.user,
-      name,
-      ["mint", "yellow", "pink", "lavender"].includes(req.body.color)
-        ? req.body.color
-        : "mint",
+      workspace,
     );
-    run("INSERT INTO members VALUES(?,?,?)", list, req.user, "owner");
-    run("INSERT INTO list_workspaces VALUES(?,?,?)", req.user, list, workspace);
+    run("INSERT INTO space_lists VALUES(?,?)", workspace, list);
+    const appearance = listAppearance(req.body);
+    run(
+      "INSERT INTO list_details VALUES(?,?,?)",
+      list,
+      appearance.icon,
+      appearance.color,
+    );
     res.json({ id: list });
   }),
 );
@@ -498,7 +572,7 @@ app.get(
     access(req.user, req.params.id);
     res.json(
       all(
-        "SELECT u.id,u.name,m.role FROM members m JOIN users u ON u.id=m.user WHERE m.list=?",
+        "SELECT u.id,u.name,m.role,(SELECT revision FROM avatars WHERE user=u.id) AS avatar,EXISTS(SELECT 1 FROM space_lists sl JOIN space_members sm ON sm.space=sl.space WHERE sl.list=m.list AND sm.user=m.user) AS inherited FROM effective_members m JOIN users u ON u.id=m.user WHERE m.list=?",
         req.params.id,
       ),
     );
@@ -516,7 +590,8 @@ app.delete(
     res.json({ ok: true });
   }),
 );
-function clean(b) {
+function clean(b, list) {
+  validateAssignee(list, b.assignee);
   if (typeof b.title !== "string" || !b.title.trim() || b.title.length > 500)
     fail(400, "Enter a task title (up to 500 characters)");
   if (b.due && !Number.isFinite(Date.parse(b.due)))
@@ -526,6 +601,7 @@ function clean(b) {
   if (!Array.isArray(b.subtasks) || b.subtasks.length > 100)
     fail(400, "Invalid subtasks");
   return {
+    assignee: b.assignee || null,
     title: b.title.trim(),
     notes: String(b.notes || "").slice(0, 20000),
     due: b.due || null,
@@ -544,7 +620,7 @@ app.post(
   "/api/tasks",
   wrap((req, res) => {
     access(req.user, req.body.list, true);
-    let d = clean(req.body),
+    let d = clean(req.body, req.body.list),
       tid = id();
     run(
       "INSERT INTO tasks VALUES(?,?,?)",
@@ -560,7 +636,7 @@ app.put(
   wrap((req, res) => {
     let t = task(req, true),
       old = JSON.parse(t.data),
-      d = clean(req.body);
+      d = clean(req.body, t.list);
     db.exec("BEGIN IMMEDIATE");
     try {
       run("UPDATE tasks SET data=? WHERE id=?", JSON.stringify(d), t.id);
@@ -662,7 +738,7 @@ app.post(
     try {
       const body = JSON.parse(req.body.task);
       access(req.user, body.list, true);
-      const data = clean(body),
+      const data = clean(body, body.list),
         reminders = JSON.parse(req.body.reminders || "[]");
       if (!Array.isArray(reminders) || reminders.length > 50)
         fail(400, "Maximum 50 reminders per task");
@@ -773,12 +849,12 @@ app.get("/api/notifications/status", (req, res) =>
       req.user,
     ).count,
     dueReminders: get(
-      "SELECT COUNT(*) count FROM reminders r JOIN tasks t ON t.id=r.task JOIN members m ON m.list=t.list WHERE m.user=? AND r.at<=?",
+      "SELECT COUNT(*) count FROM reminders r JOIN tasks t ON t.id=r.task JOIN effective_members m ON m.list=t.list WHERE m.user=? AND (json_extract(t.data,'$.assignee') IS NULL OR json_extract(t.data,'$.assignee')=m.user) AND r.at<=?",
       req.user,
       Date.now(),
     ).count,
     nextReminder: get(
-      "SELECT MIN(r.at) at FROM reminders r JOIN tasks t ON t.id=r.task JOIN members m ON m.list=t.list WHERE m.user=?",
+      "SELECT MIN(r.at) at FROM reminders r JOIN tasks t ON t.id=r.task JOIN effective_members m ON m.list=t.list WHERE m.user=? AND (json_extract(t.data,'$.assignee') IS NULL OR json_extract(t.data,'$.assignee')=m.user)",
       req.user,
     )?.at,
     lastDelivery:
